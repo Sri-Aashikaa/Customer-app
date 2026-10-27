@@ -1,0 +1,6 @@
+{
+  "name": "MilkFlow",
+  "description": "Modern milk delivery customer management app with live delivery tracking, deposit tracking, cancellations, payments, and open-source map integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

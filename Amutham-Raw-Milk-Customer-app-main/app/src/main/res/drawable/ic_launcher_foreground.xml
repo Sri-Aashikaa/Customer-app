@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Milk bottle cap -->
+    <path
+        android:fillColor="#E3F2FD"
+        android:pathData="M48,27 h12 c1.6,0 3,1.4 3,3 v2 h-18 v-2 c0,-1.6 1.4,-3 3,-3 z" />
+    <!-- Milk bottle neck and body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,33 h14 c2,0 3.5,1.5 3.5,3.5 v5 c0,4 3.5,7.5 7.5,9.5 l1,0.5 c3,1.5 5,4.6 5,8 v20 c0,4.4 -3.6,8 -8,8 H38 c-4.4,0 -8,-3.6 -8,-8 V59.5 c0,-3.4 2,-6.5 5,-8 l1,-0.5 c4,-2 7.5,-5.5 7.5,-9.5 v-5 c0,-2 1.5,-3.5 3.5,-3.5 z" />
+    <!-- Blue accent milk badge / drop inside bottle -->
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M54,58 c-3.5,0 -6,2.8 -6,6 c0,4.5 6,10 6,10 s6,-5.5 6,-10 c0,-3.2 -2.5,-6 -6,-6 z" />
+    <!-- Small shine highlight -->
+    <path
+        android:fillColor="#E1F5FE"
+        android:pathData="M37,60 c0.8,0 1.5,0.7 1.5,1.5 v14 c0,0.8 -0.7,1.5 -1.5,1.5 s-1.5,-0.7 -1.5,-1.5 v-14 c0,-0.8 0.7,-1.5 1.5,-1.5 z" />
+</vector>
