@@ -1436,7 +1436,7 @@ class SupabaseAPI {
 
   static Future<Map<String, dynamic>> fetchPricingConfig() async {
     try {
-      double ratePerLiter = 50.0;
+      double ratePerLiter = 65.0;
       double bottle1LDeposit = 150.0;
       double bottle05LDeposit = 50.0;
       double iceBoxDepositAmount = 250.0;

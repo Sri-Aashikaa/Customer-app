@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api.dart';
 import '../../services/session_service.dart';
@@ -27,8 +28,11 @@ class _DashboardTabState extends State<DashboardTab> {
   Map<String, dynamic>? _enterprise;
   Map<String, dynamic>? _pendingInvoice;
   List<Map<String, dynamic>> _additionalOrders = [];
+  List<Map<String, dynamic>> _payments = [];
+  List<Map<String, dynamic>> _deliveries = [];
+  List<Map<String, dynamic>> _cancellations = [];
   double _pendingAmount = 0.0;
-  double _ratePerLiter = 50.0;
+  double _ratePerLiter = 65.0;
   bool _updatingPayment = false;
   int _deliveryStep = 0; // -1=Cancelled, 0=Preparing, 1=PickedUp/OutForDelivery, 2=NearYou, 3=Delivered
   String _deliveryStatusLabel = 'Scheduled';
@@ -58,15 +62,41 @@ class _DashboardTabState extends State<DashboardTab> {
     final pricing = await SupabaseAPI.fetchPricingConfig();
     final ent = await SupabaseAPI.fetchEnterpriseSettings();
     final addOrders = await SupabaseAPI.fetchAdditionalMilkOrders(_customer);
+    final payments = await SupabaseAPI.fetchPayments(_customer);
+    final deliveries = await SupabaseAPI.fetchDeliveries(_customer, 'weekly');
+    final custId = _customer['id'] ?? _customer['customer_id'] ?? '';
+    final cancellations = await SupabaseAPI.fetchCancellations(custId);
 
     if (mounted) {
       setState(() {
         _partner = p;
         _enterprise = ent;
         _additionalOrders = addOrders;
-        _ratePerLiter = double.tryParse((pricing['rate_per_liter'] ?? 50.0).toString()) ?? 50.0;
+        _payments = payments;
+        _deliveries = deliveries;
+        _cancellations = cancellations;
         _pendingInvoice = pending;
         _pendingAmount = double.tryParse((pending?['pending_amount'] ?? pending?['total_amount'] ?? 0).toString()) ?? 0.0;
+
+        // Dynamically detect rate: customer rate > monthly rate / 30 > delivery rate > pricing > 65.0
+        double effectiveRate = 65.0;
+        if (freshCust != null && freshCust['rate_per_liter'] != null && (double.tryParse(freshCust['rate_per_liter'].toString()) ?? 0) > 0) {
+          effectiveRate = double.tryParse(freshCust['rate_per_liter'].toString())!;
+        } else if (freshCust != null && freshCust['monthly_rate'] != null && (double.tryParse(freshCust['monthly_rate'].toString()) ?? 0) > 0) {
+          effectiveRate = (double.tryParse(freshCust['monthly_rate'].toString())! / 30.0).roundToDouble();
+        } else if (_customer['rate_per_liter'] != null && (double.tryParse(_customer['rate_per_liter'].toString()) ?? 0) > 0) {
+          effectiveRate = double.tryParse(_customer['rate_per_liter'].toString())!;
+        } else if (_customer['monthly_rate'] != null && (double.tryParse(_customer['monthly_rate'].toString()) ?? 0) > 0) {
+          effectiveRate = (double.tryParse(_customer['monthly_rate'].toString())! / 30.0).roundToDouble();
+        } else if (deliveries.isNotEmpty && deliveries.first['rate_per_liter'] != null && (double.tryParse(deliveries.first['rate_per_liter'].toString()) ?? 0) > 0) {
+          effectiveRate = double.tryParse(deliveries.first['rate_per_liter'].toString())!;
+        } else if (del != null && del['rate_per_liter'] != null && (double.tryParse(del['rate_per_liter'].toString()) ?? 0) > 0) {
+          effectiveRate = double.tryParse(del['rate_per_liter'].toString())!;
+        } else if (pricing['rate_per_liter'] != null) {
+          final cr = double.tryParse(pricing['rate_per_liter'].toString()) ?? 65.0;
+          if (cr > 0 && cr != 50.0) effectiveRate = cr;
+        }
+        _ratePerLiter = effectiveRate;
 
         if (freshCust != null) {
           _customer = {
@@ -127,8 +157,6 @@ class _DashboardTabState extends State<DashboardTab> {
   @override
   Widget build(BuildContext context) {
     final c = _customer;
-    final isPaid = _pendingAmount <= 0 &&
-        (c['payment_status'] == 'PAID' || c['is_paid'] == true);
     final cycle = (c['payment_period'] ?? c['billing_cycle'] ?? 'Weekly').toString();
     final qty = c['milk_quantity'] != null
         ? double.tryParse(c['milk_quantity'].toString()) ?? 1.0
@@ -143,11 +171,157 @@ class _DashboardTabState extends State<DashboardTab> {
       rateSubtitle = 'Per Day (₹${_ratePerLiter.toInt()}/L)';
     } else if (cycleLower == 'monthly') {
       calculatedRate = (qty * 30 * _ratePerLiter).round();
-      rateSubtitle = 'Per Month (30 Days)';
+      rateSubtitle = 'Per Month (30 Days @ ₹${_ratePerLiter.toInt()}/L)';
     } else {
       calculatedRate = (qty * 7 * _ratePerLiter).round();
-      rateSubtitle = 'Per Week (7 Days)';
+      rateSubtitle = 'Per Week (7 Days @ ₹${_ratePerLiter.toInt()}/L)';
     }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    DateTime cycleStartDate;
+    DateTime nextDueDate;
+    String dueDayLabel;
+
+    if (cycleLower == 'daily') {
+      cycleStartDate = today;
+      nextDueDate = today;
+      dueDayLabel = 'Daily';
+    } else if (cycleLower == 'monthly') {
+      cycleStartDate = DateTime(now.year, now.month, 1);
+      if (today.day == 1) {
+        nextDueDate = today;
+      } else {
+        nextDueDate = (now.month == 12)
+            ? DateTime(now.year + 1, 1, 1)
+            : DateTime(now.year, now.month + 1, 1);
+      }
+      dueDayLabel = '1st of Month';
+    } else {
+      // Weekly: closes on Saturday
+      final daysSinceSunday = today.weekday % 7;
+      cycleStartDate = today.subtract(Duration(days: daysSinceSunday));
+      final diffToSaturday = DateTime.saturday - today.weekday;
+      if (diffToSaturday == 0) {
+        nextDueDate = today;
+      } else if (diffToSaturday < 0) {
+        nextDueDate = today.add(const Duration(days: 6));
+      } else {
+        nextDueDate = today.add(Duration(days: diffToSaturday));
+      }
+      dueDayLabel = 'Saturday';
+    }
+
+    final int daysUntilDue = nextDueDate.difference(today).inDays;
+    final bool isDueToday = daysUntilDue == 0;
+
+    // Check cancellations in current cycle
+    final approvedCancelledDates = _cancellations
+        .where((can) {
+          final s = (can['approval_status'] ?? can['status'] ?? '').toString().toUpperCase();
+          return s == 'APPROVED' || s == 'REQUESTED';
+        })
+        .map((can) => (can['cancellation_date'] ?? can['cancel_date'] ?? '').toString())
+        .toSet();
+
+    // Calculate delivered amount in this cycle
+    double deliveredAmount = 0.0;
+    double deliveredLiters = 0.0;
+
+    if (cycleLower == 'daily') {
+      final todayStr = DateFormat('yyyy-MM-dd').format(today);
+      if (!approvedCancelledDates.contains(todayStr)) {
+        deliveredLiters = qty;
+        deliveredAmount = qty * _ratePerLiter;
+      }
+    } else if (cycleLower == 'monthly') {
+      int cancelDays = 0;
+      for (int i = 1; i <= today.day; i++) {
+        final dStr = DateFormat('yyyy-MM-dd').format(DateTime(today.year, today.month, i));
+        if (approvedCancelledDates.contains(dStr)) cancelDays++;
+      }
+      final activeDays = (today.day - cancelDays).clamp(0, 31);
+      deliveredLiters = activeDays * qty;
+      deliveredAmount = deliveredLiters * _ratePerLiter;
+    } else {
+      // Weekly: calculate based on deliveries table or elapsed days
+      if (_deliveries.isNotEmpty) {
+        final validDeliveries = _deliveries.where((d) {
+          final s = (d['delivery_status'] ?? '').toString().toUpperCase();
+          if (s == 'CANCELLED') return false;
+          final dDate = (d['delivery_date'] ?? d['created_at'] ?? '').toString().split('T').first;
+          final pDate = DateTime.tryParse(dDate);
+          if (pDate != null && pDate.isBefore(cycleStartDate)) return false;
+          return true;
+        }).toList();
+
+        for (var d in validDeliveries) {
+          final dQty = double.tryParse((d['quantity'] ?? qty).toString()) ?? qty;
+          final dRate = double.tryParse((d['rate_per_liter'] ?? _ratePerLiter).toString()) ?? _ratePerLiter;
+          final dAmt = double.tryParse((d['total_amount'] ?? (dQty * dRate)).toString()) ?? (dQty * dRate);
+          deliveredLiters += dQty;
+          deliveredAmount += dAmt;
+        }
+      } else {
+        int cancelDays = 0;
+        final elapsedDays = today.difference(cycleStartDate).inDays + 1;
+        for (int i = 0; i < elapsedDays && i < 7; i++) {
+          final dStr = DateFormat('yyyy-MM-dd').format(cycleStartDate.add(Duration(days: i)));
+          if (approvedCancelledDates.contains(dStr)) cancelDays++;
+        }
+        final activeDays = (elapsedDays - cancelDays).clamp(0, 7);
+        deliveredLiters = activeDays * qty;
+        deliveredAmount = deliveredLiters * _ratePerLiter;
+      }
+    }
+
+    // Add additional orders in current cycle
+    for (var ao in _additionalOrders) {
+      final aoDateStr = (ao['order_date'] ?? ao['delivery_date'] ?? ao['created_at'] ?? '').toString().split('T').first;
+      final aoDate = DateTime.tryParse(aoDateStr);
+      if (aoDate != null && !aoDate.isBefore(cycleStartDate)) {
+        final aoQty = double.tryParse((ao['quantity'] ?? 0).toString()) ?? 0.0;
+        final aoAmt = double.tryParse((ao['total_amount'] ?? (aoQty * _ratePerLiter)).toString()) ?? (aoQty * _ratePerLiter);
+        deliveredLiters += aoQty;
+        deliveredAmount += aoAmt;
+      }
+    }
+
+    // Check if paid for current cycle
+    bool isPaid = false;
+    final milkPayments = _payments.where((p) {
+      final status = (p['payment_status'] ?? p['status'] ?? '').toString().toUpperCase();
+      if (status != 'PAID' && status != 'COMPLETED') return false;
+      final period = (p['billing_period'] ?? '').toString().toLowerCase();
+      if (period.contains('deposit')) return false;
+      final pDateStr = (p['payment_date'] ?? p['created_at'] ?? '').toString().split('T').first;
+      final pDate = DateTime.tryParse(pDateStr);
+      if (pDate == null || pDate.isBefore(cycleStartDate)) return false;
+      final paidAmt = double.tryParse((p['paid_amount'] ?? p['total_amount'] ?? 0).toString()) ?? 0.0;
+      return paidAmt >= (deliveredAmount > 0 ? deliveredAmount : 1.0);
+    }).toList();
+
+    if (milkPayments.isNotEmpty) {
+      isPaid = true;
+    } else if (c['payment_status'] == 'PAID' && _pendingAmount <= 0) {
+      isPaid = true;
+    }
+
+    // Check if overdue from a prior cycle
+    bool isOverdue = false;
+    double overdueAmount = 0.0;
+    if (_pendingInvoice != null) {
+      final invDateStr = (_pendingInvoice?['payment_date'] ?? _pendingInvoice?['created_at'] ?? '').toString().split('T').first;
+      final invDate = DateTime.tryParse(invDateStr);
+      if (invDate != null && invDate.isBefore(cycleStartDate)) {
+        isOverdue = true;
+        overdueAmount = double.tryParse((_pendingInvoice?['pending_amount'] ?? _pendingInvoice?['total_amount'] ?? 0).toString()) ?? 0.0;
+      }
+    }
+
+    final double dueAmount = isOverdue
+        ? overdueAmount
+        : (deliveredAmount > 0 ? deliveredAmount : calculatedRate.toDouble());
 
     return RefreshIndicator(
       onRefresh: _loadServerData,
@@ -646,7 +820,17 @@ class _DashboardTabState extends State<DashboardTab> {
           Row(children: [
             Expanded(
               child: GestureDetector(
-                onTap: _showUpdatePaymentBottomSheet,
+                onTap: () => _showUpdatePaymentBottomSheet(
+                  isDueToday: isDueToday,
+                  isOverdue: isOverdue,
+                  dueAmount: dueAmount,
+                  deliveredAmount: deliveredAmount,
+                  daysUntilDue: daysUntilDue,
+                  dueDayLabel: dueDayLabel,
+                  calculatedRate: calculatedRate,
+                  isPaid: isPaid,
+                  cycle: cycle,
+                ),
                 child: _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -655,25 +839,45 @@ class _DashboardTabState extends State<DashboardTab> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: isPaid ? _green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.15),
+                          color: isPaid
+                              ? _green.withValues(alpha: 0.1)
+                              : (isDueToday || isOverdue)
+                                  ? Colors.orange.withValues(alpha: 0.15)
+                                  : const Color(0xFFE0F2FE),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              isPaid ? 'Update' : 'Pay Now',
+                              isPaid
+                                  ? 'Paid ✅'
+                                  : (isDueToday || isOverdue)
+                                      ? 'Pay Now'
+                                      : 'Active 📅',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: isPaid ? _green : Colors.orange.shade800,
+                                color: isPaid
+                                    ? _green
+                                    : (isDueToday || isOverdue)
+                                        ? Colors.orange.shade800
+                                        : const Color(0xFF0284C7),
                               ),
                             ),
                             const SizedBox(width: 2),
                             Icon(
-                              isPaid ? Icons.edit : Icons.payment,
+                              isPaid
+                                  ? Icons.check_circle_outline
+                                  : (isDueToday || isOverdue)
+                                      ? Icons.payment
+                                      : Icons.calendar_today,
                               size: 10,
-                              color: isPaid ? _green : Colors.orange.shade800,
+                              color: isPaid
+                                  ? _green
+                                  : (isDueToday || isOverdue)
+                                      ? Colors.orange.shade800
+                                      : const Color(0xFF0284C7),
                             ),
                           ],
                         ),
@@ -684,44 +888,82 @@ class _DashboardTabState extends State<DashboardTab> {
                   Text(
                     isPaid
                         ? 'PAID ✅'
-                        : 'PENDING (${_pendingAmount > 0 ? "₹${_pendingAmount.toInt()}" : "Due"}) ⚠️',
+                        : (isDueToday || isOverdue)
+                            ? 'DUE TODAY (₹${dueAmount.toInt()}) ⚠️'
+                            : 'NO DUES TODAY ✅',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: isPaid ? _green : Colors.orange.shade800,
+                      fontSize: 13,
+                      color: isPaid
+                          ? _green
+                          : (isDueToday || isOverdue)
+                              ? Colors.orange.shade800
+                              : const Color(0xFF0F172A),
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Cycle: ${cycle.toUpperCase()}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.w600),
+                    isPaid
+                        ? 'Cycle: ${cycle.toUpperCase()}'
+                        : (isDueToday || isOverdue)
+                            ? 'Due Today ($dueDayLabel)'
+                            : 'Due $dueDayLabel ($daysUntilDue ${daysUntilDue == 1 ? "day" : "days"} left)',
+                    style: TextStyle(
+                      color: (isDueToday || isOverdue) ? Colors.orange.shade800 : Colors.grey.shade600,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ])),
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(child: _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Rate Summary', style: TextStyle(color: Colors.grey, fontSize: 11)),
-              const SizedBox(height: 4),
-              Text('₹$calculatedRate',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
-              const SizedBox(height: 2),
-              Text(rateSubtitle, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-            ]))),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => widget.onNavigateToTab?.call(4),
+                child: _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Rate Summary', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      const Icon(Icons.arrow_forward_ios, size: 10, color: Colors.grey),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '₹$calculatedRate',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(rateSubtitle, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                ])),
+              ),
+            ),
           ]),
         ],
       ),
     );
   }
 
-  void _showUpdatePaymentBottomSheet() {
+  void _showUpdatePaymentBottomSheet({
+    required bool isDueToday,
+    required bool isOverdue,
+    required double dueAmount,
+    required double deliveredAmount,
+    required int daysUntilDue,
+    required String dueDayLabel,
+    required int calculatedRate,
+    required bool isPaid,
+    required String cycle,
+  }) {
     String selectedCycle = (_customer['payment_period'] ?? _customer['billing_cycle'] ?? 'weekly').toString().toLowerCase();
     if (selectedCycle != 'daily' && selectedCycle != 'weekly' && selectedCycle != 'monthly') {
       selectedCycle = 'weekly';
     }
-
-    final isPaid = _pendingAmount <= 0 &&
-        (_customer['payment_status'] == 'PAID' || _customer['is_paid'] == true);
 
     showModalBottomSheet(
       context: context,
@@ -790,17 +1032,33 @@ class _DashboardTabState extends State<DashboardTab> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: isPaid ? const Color(0xFFF0FDF4) : const Color(0xFFFFF7ED),
+                      color: isPaid
+                          ? const Color(0xFFF0FDF4)
+                          : (isDueToday || isOverdue)
+                              ? const Color(0xFFFFF7ED)
+                              : const Color(0xFFF0FDF4),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isPaid ? _green.withValues(alpha: 0.3) : Colors.orange.shade300,
+                        color: isPaid
+                            ? _green.withValues(alpha: 0.3)
+                            : (isDueToday || isOverdue)
+                                ? Colors.orange.shade300
+                                : const Color(0xFFBAE6FD),
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          isPaid ? Icons.check_circle : Icons.warning_amber_rounded,
-                          color: isPaid ? _green : Colors.orange.shade800,
+                          isPaid
+                              ? Icons.check_circle
+                              : (isDueToday || isOverdue)
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.calendar_today,
+                          color: isPaid
+                              ? _green
+                              : (isDueToday || isOverdue)
+                                  ? Colors.orange.shade800
+                                  : const Color(0xFF0284C7),
                           size: 26,
                         ),
                         const SizedBox(width: 12),
@@ -809,21 +1067,33 @@ class _DashboardTabState extends State<DashboardTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                isPaid ? 'Payment Status: PAID ✅' : 'Payment Status: PENDING ⚠️',
+                                isPaid
+                                    ? 'Payment Status: PAID ✅'
+                                    : (isDueToday || isOverdue)
+                                        ? 'Payment Status: DUE TODAY ⚠️'
+                                        : 'Payment Status: CYCLE ACTIVE 🟢',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
-                                  color: isPaid ? _green : Colors.orange.shade900,
+                                  color: isPaid
+                                      ? _green
+                                      : (isDueToday || isOverdue)
+                                          ? Colors.orange.shade900
+                                          : const Color(0xFF0F172A),
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 isPaid
                                     ? 'All milk deliveries in this cycle are fully settled.'
-                                    : 'Pending bill amount: ₹${_pendingAmount > 0 ? _pendingAmount.toInt() : 50} (${_pendingInvoice?['billing_period'] ?? 'Current Cycle'})',
+                                    : (isDueToday || isOverdue)
+                                        ? 'Weekly settlement amount of ₹${dueAmount.toInt()} is due today ($dueDayLabel).'
+                                        : 'Settlement closes on $dueDayLabel ($daysUntilDue ${daysUntilDue == 1 ? "day" : "days"} remaining). Delivered so far: ₹${deliveredAmount.toInt()}. No payment required today.',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: isPaid ? Colors.grey.shade700 : Colors.orange.shade800,
+                                  color: (isDueToday || isOverdue)
+                                      ? Colors.orange.shade800
+                                      : Colors.grey.shade700,
                                 ),
                               ),
                             ],
@@ -833,7 +1103,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                   ),
 
-                  if (!isPaid) ...[
+                  if (isDueToday || isOverdue) ...[
                     const SizedBox(height: 12),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
@@ -844,14 +1114,36 @@ class _DashboardTabState extends State<DashboardTab> {
                       ),
                       icon: const Icon(Icons.qr_code_2, size: 18),
                       label: Text(
-                        'Pay ₹${_pendingAmount > 0 ? _pendingAmount.toInt() : 50} Now via UPI',
+                        'Pay ₹${dueAmount.toInt()} Now via UPI',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
                       onPressed: () {
                         Navigator.pop(modalCtx);
                         _showUPIPaymentModal(
-                          _pendingAmount > 0 ? _pendingAmount : 50.0,
-                          _pendingInvoice?['billing_period'] ?? 'Milk Delivery Settlement',
+                          dueAmount,
+                          '${cycle.toUpperCase()} Milk Delivery Settlement',
+                        );
+                      },
+                    ),
+                  ] else if (!isPaid) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _green,
+                        side: const BorderSide(color: _green),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                      label: Text(
+                        'Pay Early / Recharge ₹${deliveredAmount > 0 ? deliveredAmount.toInt() : calculatedRate} (Optional)',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(modalCtx);
+                        _showUPIPaymentModal(
+                          deliveredAmount > 0 ? deliveredAmount : calculatedRate.toDouble(),
+                          '${cycle.toUpperCase()} Advance Milk Payment',
                         );
                       },
                     ),
