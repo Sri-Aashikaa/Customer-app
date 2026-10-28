@@ -11,8 +11,13 @@ const String _supabaseKey =
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseKey);
-  final savedCustomer = await UserSession.getSession();
+  Map<String, dynamic>? savedCustomer;
+  try {
+    await Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseKey);
+    savedCustomer = await UserSession.getSession();
+  } catch (e, stack) {
+    debugPrint('Startup initialization error: $e\n$stack');
+  }
   runApp(AmuthamApp(savedCustomer: savedCustomer));
 }
 
