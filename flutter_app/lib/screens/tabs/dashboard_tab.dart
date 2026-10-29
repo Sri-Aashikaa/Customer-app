@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api.dart';
@@ -25,7 +24,7 @@ class DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<DashboardTab> {
   late Map<String, dynamic> _customer;
   Map<String, dynamic>? _partner;
-  Map<String, dynamic>? _enterprise;
+  Map<String, dynamic>? _orderTimings;
   Map<String, dynamic>? _pendingInvoice;
   List<Map<String, dynamic>> _additionalOrders = [];
   List<Map<String, dynamic>> _payments = [];
@@ -33,10 +32,10 @@ class _DashboardTabState extends State<DashboardTab> {
   List<Map<String, dynamic>> _cancellations = [];
   double _pendingAmount = 0.0;
   double _ratePerLiter = 65.0;
-  bool _updatingPayment = false;
   int _deliveryStep = 0; // -1=Cancelled, 0=Preparing, 1=PickedUp/OutForDelivery, 2=NearYou, 3=Delivered
   String _deliveryStatusLabel = 'Scheduled';
   String _deliveryNotes = '';
+  String _todayDeliveredTime = '';
   bool _loading = true;
 
   @override
@@ -60,7 +59,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final freshCust = await SupabaseAPI.fetchCustomerDetails(_customer);
     final pending = await SupabaseAPI.fetchActivePendingPayment(_customer);
     final pricing = await SupabaseAPI.fetchPricingConfig();
-    final ent = await SupabaseAPI.fetchEnterpriseSettings();
+    final timings = await SupabaseAPI.fetchOrderTimingsConfig();
     final addOrders = await SupabaseAPI.fetchAdditionalMilkOrders(_customer);
     final payments = await SupabaseAPI.fetchPayments(_customer);
     final deliveries = await SupabaseAPI.fetchDeliveries(_customer, 'weekly');
@@ -70,7 +69,7 @@ class _DashboardTabState extends State<DashboardTab> {
     if (mounted) {
       setState(() {
         _partner = p;
-        _enterprise = ent;
+        _orderTimings = timings;
         _additionalOrders = addOrders;
         _payments = payments;
         _deliveries = deliveries;
@@ -110,6 +109,38 @@ class _DashboardTabState extends State<DashboardTab> {
         if (del != null) {
           final status = (del['delivery_status'] ?? '').toString().toUpperCase();
           _deliveryNotes = del['notes']?.toString() ?? '';
+
+          String foundTime = '';
+          final rawDeliveredAt = del['delivered_at']?.toString();
+          if (rawDeliveredAt != null && rawDeliveredAt.isNotEmpty && rawDeliveredAt != 'null') {
+            try {
+              final dt = DateTime.parse(rawDeliveredAt).toLocal();
+              foundTime = DateFormat('hh:mm a').format(dt);
+            } catch (_) {}
+          }
+          if (foundTime.isEmpty) {
+            final rawDelTime = del['delivery_time']?.toString();
+            if (rawDelTime != null && rawDelTime.isNotEmpty && rawDelTime != 'null') {
+              try {
+                final dt = DateTime.parse(rawDelTime).toLocal();
+                foundTime = DateFormat('hh:mm a').format(dt);
+              } catch (_) {
+                if (rawDelTime.contains(':')) foundTime = rawDelTime;
+              }
+            }
+          }
+          if (foundTime.isEmpty) {
+            final rawTiming = (del['delivery_timing'] ?? _customer['delivery_timing'] ?? '').toString();
+            final timeMatch = RegExp(r'(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)', caseSensitive: false)
+                .firstMatch(rawTiming);
+            if (timeMatch != null && timeMatch.group(1) != null) {
+              foundTime = timeMatch.group(1)!;
+            } else {
+              foundTime = _formatSlotOnly(rawTiming) == 'Evening' ? '6:00 PM - 7:00 PM' : '6:00 AM - 7:00 AM';
+            }
+          }
+          _todayDeliveredTime = foundTime;
+
           if (status == 'CANCELLED') {
             _deliveryStep = -1;
             _deliveryStatusLabel = 'Paused Today';
@@ -129,6 +160,14 @@ class _DashboardTabState extends State<DashboardTab> {
         } else {
           _deliveryStep = 0;
           _deliveryStatusLabel = 'Preparing';
+          final rawTiming = (_customer['delivery_timing'] ?? '').toString();
+          final timeMatch = RegExp(r'(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)', caseSensitive: false)
+              .firstMatch(rawTiming);
+          if (timeMatch != null && timeMatch.group(1) != null) {
+            _todayDeliveredTime = timeMatch.group(1)!;
+          } else {
+            _todayDeliveredTime = _formatSlotOnly(rawTiming) == 'Evening' ? '6:00 PM - 7:00 PM' : '6:00 AM - 7:00 AM';
+          }
         }
 
         _loading = false;
@@ -154,6 +193,21 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
+  String _formatSlotOnly(String raw) {
+    final l = raw.toLowerCase();
+    if (l.contains('both')) return 'Both';
+    if (l.contains('evening') ||
+        (l.contains('pm') &&
+            (l.contains('4:') ||
+                l.contains('5:') ||
+                l.contains('6:') ||
+                l.contains('7:') ||
+                l.contains('8:')))) {
+      return 'Evening';
+    }
+    return 'Morning';
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = _customer;
@@ -161,7 +215,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final qty = c['milk_quantity'] != null
         ? double.tryParse(c['milk_quantity'].toString()) ?? 1.0
         : 1.0;
-    final slot = c['delivery_timing'] ?? c['delivery_slot'] ?? 'Morning';
+    final slot = _formatSlotOnly((c['delivery_timing'] ?? c['delivery_slot'] ?? 'Morning').toString());
 
     final cycleLower = cycle.toLowerCase();
     int calculatedRate;
@@ -416,6 +470,38 @@ class _DashboardTabState extends State<DashboardTab> {
               const SizedBox(width: 12),
               Expanded(child: _metricBox('Delivery Slot', slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', ''))),
             ]),
+            if (_deliveryStep != -1 && _todayDeliveredTime.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _deliveryStep == 3 ? Icons.check_circle_outline : Icons.access_time,
+                      size: 14,
+                      color: _deliveryStep == 3 ? _green : Colors.blue,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _deliveryStep == 3
+                          ? 'Delivered Time: $_todayDeliveredTime'
+                          : 'Expected Time: $_todayDeliveredTime',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _deliveryStep == 3 ? _green : const Color(0xFF334155),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             const Divider(),
             const SizedBox(height: 8),
@@ -525,7 +611,7 @@ class _DashboardTabState extends State<DashboardTab> {
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: _showAdditionalOrderBottomSheet,
+                onTap: _checkServiceabilityAndOpenAdditionalOrder,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                   child: Row(
@@ -705,7 +791,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      '$q L • ${timing.replaceAll('🌅 ', '').replaceAll('🌇 ', '')}',
+                                      '$q L • ${_formatSlotOnly(timing)}',
                                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                                     ),
                                     Text(
@@ -820,17 +906,7 @@ class _DashboardTabState extends State<DashboardTab> {
           Row(children: [
             Expanded(
               child: GestureDetector(
-                onTap: () => _showUpdatePaymentBottomSheet(
-                  isDueToday: isDueToday,
-                  isOverdue: isOverdue,
-                  dueAmount: dueAmount,
-                  deliveredAmount: deliveredAmount,
-                  daysUntilDue: daysUntilDue,
-                  dueDayLabel: dueDayLabel,
-                  calculatedRate: calculatedRate,
-                  isPaid: isPaid,
-                  cycle: cycle,
-                ),
+                onTap: () => widget.onNavigateToTab?.call(4),
                 child: _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -949,566 +1025,6 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  void _showUpdatePaymentBottomSheet({
-    required bool isDueToday,
-    required bool isOverdue,
-    required double dueAmount,
-    required double deliveredAmount,
-    required int daysUntilDue,
-    required String dueDayLabel,
-    required int calculatedRate,
-    required bool isPaid,
-    required String cycle,
-  }) {
-    String selectedCycle = (_customer['payment_period'] ?? _customer['billing_cycle'] ?? 'weekly').toString().toLowerCase();
-    if (selectedCycle != 'daily' && selectedCycle != 'weekly' && selectedCycle != 'monthly') {
-      selectedCycle = 'weekly';
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (modalCtx, setModalState) {
-          return Container(
-            padding: const EdgeInsets.all(22),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFECFDF5),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.payment, color: _green, size: 22),
-                          ),
-                          const SizedBox(width: 10),
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Update Payment & Billing',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                              Text('Manage settlement cycle & pay dues',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(modalCtx),
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  const SizedBox(height: 10),
-
-                  // Current Payment Status Card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: isPaid
-                          ? const Color(0xFFF0FDF4)
-                          : (isDueToday || isOverdue)
-                              ? const Color(0xFFFFF7ED)
-                              : const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isPaid
-                            ? _green.withValues(alpha: 0.3)
-                            : (isDueToday || isOverdue)
-                                ? Colors.orange.shade300
-                                : const Color(0xFFBAE6FD),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isPaid
-                              ? Icons.check_circle
-                              : (isDueToday || isOverdue)
-                                  ? Icons.warning_amber_rounded
-                                  : Icons.calendar_today,
-                          color: isPaid
-                              ? _green
-                              : (isDueToday || isOverdue)
-                                  ? Colors.orange.shade800
-                                  : const Color(0xFF0284C7),
-                          size: 26,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                isPaid
-                                    ? 'Payment Status: PAID ✅'
-                                    : (isDueToday || isOverdue)
-                                        ? 'Payment Status: DUE TODAY ⚠️'
-                                        : 'Payment Status: CYCLE ACTIVE 🟢',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: isPaid
-                                      ? _green
-                                      : (isDueToday || isOverdue)
-                                          ? Colors.orange.shade900
-                                          : const Color(0xFF0F172A),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                isPaid
-                                    ? 'All milk deliveries in this cycle are fully settled.'
-                                    : (isDueToday || isOverdue)
-                                        ? 'Weekly settlement amount of ₹${dueAmount.toInt()} is due today ($dueDayLabel).'
-                                        : 'Settlement closes on $dueDayLabel ($daysUntilDue ${daysUntilDue == 1 ? "day" : "days"} remaining). Delivered so far: ₹${deliveredAmount.toInt()}. No payment required today.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: (isDueToday || isOverdue)
-                                      ? Colors.orange.shade800
-                                      : Colors.grey.shade700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  if (isDueToday || isOverdue) ...[
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEA580C),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      icon: const Icon(Icons.qr_code_2, size: 18),
-                      label: Text(
-                        'Pay ₹${dueAmount.toInt()} Now via UPI',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(modalCtx);
-                        _showUPIPaymentModal(
-                          dueAmount,
-                          '${cycle.toUpperCase()} Milk Delivery Settlement',
-                        );
-                      },
-                    ),
-                  ] else if (!isPaid) ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _green,
-                        side: const BorderSide(color: _green),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
-                      label: Text(
-                        'Pay Early / Recharge ₹${deliveredAmount > 0 ? deliveredAmount.toInt() : calculatedRate} (Optional)',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(modalCtx);
-                        _showUPIPaymentModal(
-                          deliveredAmount > 0 ? deliveredAmount : calculatedRate.toDouble(),
-                          '${cycle.toUpperCase()} Advance Milk Payment',
-                        );
-                      },
-                    ),
-                  ],
-
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Select Billing / Settlement Schedule:',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Option 1: Daily
-                  _periodSelectionCard(
-                    title: 'Daily Post-Delivery',
-                    subtitle: 'Pay daily after each morning or evening delivery drop',
-                    tag: 'Pay Daily',
-                    selected: selectedCycle == 'daily',
-                    onTap: () async {
-                      await _handleCycleChange('daily', modalCtx, setModalState);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Option 2: Weekly
-                  _periodSelectionCard(
-                    title: 'Weekly (Every Saturday)',
-                    subtitle: 'Pay once a week every Saturday for the week\'s delivered milk',
-                    tag: 'Popular',
-                    selected: selectedCycle == 'weekly',
-                    onTap: () async {
-                      await _handleCycleChange('weekly', modalCtx, setModalState);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Option 3: Monthly
-                  _periodSelectionCard(
-                    title: 'Monthly (1st of Month)',
-                    subtitle: 'Pay once a month on the 1st for the previous month\'s milk',
-                    tag: 'Monthly Bill',
-                    selected: selectedCycle == 'monthly',
-                    onTap: () async {
-                      await _handleCycleChange('monthly', modalCtx, setModalState);
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.receipt_long, size: 16),
-                    label: const Text('View Full Payment History & Invoices',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _green,
-                      side: const BorderSide(color: _green),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () {
-                      Navigator.pop(modalCtx);
-                      widget.onNavigateToTab?.call(4);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _handleCycleChange(
-      String newCycle, BuildContext modalCtx, Function(void Function()) setModalState) async {
-    setModalState(() => _updatingPayment = true);
-    try {
-      await SupabaseAPI.updatePaymentPeriod(_customer, newCycle);
-      setState(() {
-        _customer['payment_period'] = newCycle;
-        _customer['billing_cycle'] = newCycle;
-      });
-      await UserSession.saveSession(_customer);
-      widget.onUpdated?.call(_customer);
-      if (modalCtx.mounted) {
-        Navigator.pop(modalCtx);
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('✅ Payment settlement cycle updated to ${newCycle.toUpperCase()}!'),
-          backgroundColor: _green,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to update payment cycle: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    } finally {
-      if (mounted) setModalState(() => _updatingPayment = false);
-    }
-  }
-
-  Widget _periodSelectionCard({
-    required String title,
-    required String subtitle,
-    required String tag,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: _updatingPayment ? null : onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? _green : const Color(0xFFE2E8F0),
-            width: selected ? 1.8 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? _green : Colors.grey,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _green.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(tag,
-                            style: const TextStyle(fontSize: 9, color: _green, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showUPIPaymentModal(double amount, String periodLabel) {
-    final upiId = (_enterprise?['upi_id'] ?? 'amudhamdairy@upi').toString().trim();
-    final compName = (_enterprise?['upi_payee_name'] ?? _enterprise?['company_name'] ?? 'Amudham Milk Enterprises').toString().trim();
-    final upiUrl = 'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(compName)}&am=${amount.toInt()}&cu=INR&tn=MilkPayment';
-    final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${Uri.encodeComponent(upiUrl)}';
-    bool paying = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (modalCtx, setModalState) {
-            return Container(
-              padding: const EdgeInsets.all(22),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Settle Pending Payment',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(modalCtx),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    const SizedBox(height: 8),
-
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(periodLabel, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                              const SizedBox(height: 2),
-                              const Text('Total Amount Payable',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            ],
-                          ),
-                          Text('₹${amount.toInt()}',
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _green)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // QR Code
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Image.network(
-                          qrUrl,
-                          width: 150,
-                          height: 150,
-                          fit: BoxFit.contain,
-                          errorBuilder: (ctx, err, stack) => const Icon(Icons.qr_code, size: 80, color: _green),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Center(
-                      child: Text('Scan via GPay / PhonePe / Paytm / Any UPI App',
-                          style: TextStyle(fontSize: 10, color: Colors.grey)),
-                    ),
-                    const SizedBox(height: 14),
-
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.open_in_new, size: 16),
-                      label: const Text('Open in UPI App', style: TextStyle(fontWeight: FontWeight.bold)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _green,
-                        side: const BorderSide(color: _green),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () async {
-                        try {
-                          final uri = Uri.parse(upiUrl);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          } else {
-                            Clipboard.setData(ClipboardData(text: upiId));
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                content: Text('UPI ID copied: $upiId'),
-                                backgroundColor: _green,
-                                behavior: SnackBarBehavior.floating,
-                              ));
-                            }
-                          }
-                        } catch (_) {
-                          Clipboard.setData(ClipboardData(text: upiId));
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 10),
-
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: paying
-                          ? null
-                          : () async {
-                              setModalState(() => paying = true);
-                              try {
-                                await SupabaseAPI.processPayment(
-                                  _customer,
-                                  _customer['name'] ?? 'Customer',
-                                  (_customer['mobile'] ?? _customer['phone'] ?? '').toString(),
-                                  amount,
-                                  billingPeriod: periodLabel,
-                                );
-                                setState(() {
-                                  _pendingAmount = 0.0;
-                                  _pendingInvoice = null;
-                                  _customer['payment_status'] = 'PAID';
-                                  _customer['is_paid'] = true;
-                                });
-                                await UserSession.saveSession(_customer);
-                                widget.onUpdated?.call(_customer);
-                                if (modalCtx.mounted) {
-                                  Navigator.pop(modalCtx);
-                                }
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                    content: Text('🎉 Payment Recorded & Settled Successfully!'),
-                                    backgroundColor: _green,
-                                    behavior: SnackBarBehavior.floating,
-                                  ));
-                                }
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                    content: Text('Payment update notice: $e'),
-                                    backgroundColor: Colors.red,
-                                    behavior: SnackBarBehavior.floating,
-                                  ));
-                                }
-                              } finally {
-                                if (mounted) setModalState(() => paying = false);
-                              }
-                            },
-                      child: paying
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('I Have Paid • Mark as Paid ✅',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _confirmCancelAdditionalOrder(Map<String, dynamic> ord) {
     showDialog(
       context: context,
@@ -1553,14 +1069,137 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
+  void _showUnserviceableDialog(String pincode) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFDE68A), width: 2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.location_off_outlined, color: Color(0xFFD97706), size: 30),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delivery Notice',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Pincode: $pincode',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0284C7)),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E293B),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'We have logged your location in our operations panel and will notify you as soon as morning & evening delivery commences here!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkServiceabilityAndOpenAdditionalOrder() async {
+    final custPincode = (_customer['pincode'] ?? '').toString().trim();
+    if (custPincode.isNotEmpty) {
+      final serviceable = await SupabaseAPI.isPincodeServiceable(custPincode);
+      if (!serviceable) {
+        if (!mounted) return;
+        _showUnserviceableDialog(custPincode);
+        return;
+      }
+    }
+    _showAdditionalOrderBottomSheet();
+  }
+
   void _showAdditionalOrderBottomSheet() {
     final now = DateTime.now();
-    DateTime selectedDate = now.hour < 16 ? now : now.add(const Duration(days: 1));
+    final timings = _orderTimings ?? const {};
+    final morningCutoffStr = (timings['morning_cutoff_time'] ?? '09:00 AM').toString();
+    final eveningCutoffStr = (timings['evening_cutoff_time'] ?? '05:00 PM').toString();
 
-    String selectedSlot = 'Morning (5:00 AM - 9:30 AM)';
+    final morningSlotLabel = 'Morning';
+    final eveningSlotLabel = 'Evening';
+
+    final morningEnabled = timings['morning_slot_enabled'] != false;
+    final eveningEnabled = timings['evening_slot_enabled'] != false;
+    final allowSameDay = timings['allow_same_day_orders'] != false;
+    final maxAdvanceDays = int.tryParse((timings['max_advance_days'] ?? 30).toString()) ?? 30;
+
+    final nowMins = now.hour * 60 + now.minute;
+    final morningCutoffMins = SupabaseAPI.parseTimeToMinutes(morningCutoffStr, defaultMinutes: 9 * 60);
+    final eveningCutoffMins = SupabaseAPI.parseTimeToMinutes(eveningCutoffStr, defaultMinutes: 17 * 60);
+
+    final isMorningPassedToday = nowMins >= morningCutoffMins;
+    final isEveningPassedToday = nowMins >= eveningCutoffMins;
+    final isTodayAvailable = allowSameDay && !isEveningPassedToday;
+
+    final tomorrow = now.add(const Duration(days: 1));
+    DateTime selectedDate = isTodayAvailable ? now : tomorrow;
+
+    String selectedSlot = morningSlotLabel;
     final custSlot = (_customer['delivery_timing'] ?? _customer['delivery_slot'] ?? '').toString().toLowerCase();
-    if (custSlot.contains('evening') || (selectedDate.day == now.day && now.hour >= 9)) {
-      selectedSlot = 'Evening (5:00 PM - 8:00 PM)';
+    if (selectedDate.day == now.day && isMorningPassedToday) {
+      selectedSlot = eveningSlotLabel;
+    } else if (custSlot.contains('evening') && eveningEnabled) {
+      selectedSlot = eveningSlotLabel;
+    } else if (morningEnabled) {
+      selectedSlot = morningSlotLabel;
+    } else {
+      selectedSlot = eveningSlotLabel;
     }
 
     double selectedQty = 1.0;
@@ -1576,10 +1215,12 @@ class _DashboardTabState extends State<DashboardTab> {
         builder: (modalCtx, setModalState) {
           final totalAmount = (selectedQty * rate);
           final isToday = selectedDate.year == now.year && selectedDate.month == now.month && selectedDate.day == now.day;
-          final tomorrow = now.add(const Duration(days: 1));
           final isTomorrow = selectedDate.year == tomorrow.year && selectedDate.month == tomorrow.month && selectedDate.day == tomorrow.day;
           final dayAfter = now.add(const Duration(days: 2));
           final isDayAfter = selectedDate.year == dayAfter.year && selectedDate.month == dayAfter.month && selectedDate.day == dayAfter.day;
+
+          final canSelectMorning = isToday ? (!isMorningPassedToday && morningEnabled) : morningEnabled;
+          final canSelectEvening = isToday ? (!isEveningPassedToday && eveningEnabled) : eveningEnabled;
 
           return Container(
             padding: EdgeInsets.only(
@@ -1679,7 +1320,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (now.hour < 17)
+                      if (isTodayAvailable)
                         ChoiceChip(
                           label: Text('Today (${now.day}/${now.month})'),
                           selected: isToday,
@@ -1693,8 +1334,8 @@ class _DashboardTabState extends State<DashboardTab> {
                             if (sel) {
                               setModalState(() {
                                 selectedDate = now;
-                                if (now.hour >= 9) {
-                                  selectedSlot = 'Evening (5:00 PM - 8:00 PM)';
+                                if (isMorningPassedToday) {
+                                  selectedSlot = eveningSlotLabel;
                                 }
                               });
                             }
@@ -1743,7 +1384,7 @@ class _DashboardTabState extends State<DashboardTab> {
                             context: modalCtx,
                             initialDate: selectedDate,
                             firstDate: now,
-                            lastDate: now.add(const Duration(days: 60)),
+                            lastDate: now.add(Duration(days: maxAdvanceDays)),
                             builder: (context, child) => Theme(
                               data: Theme.of(context).copyWith(
                                 colorScheme: const ColorScheme.light(primary: _green),
@@ -1766,42 +1407,47 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (!(isToday && now.hour >= 9))
+                      if (canSelectMorning)
                         Expanded(
                           child: ChoiceChip(
                             label: const Center(
-                              child: Text('🌅 Morning\n5:00 AM - 9:30 AM',
-                                  textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+                              child: Text('🌅 Morning',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             ),
                             selected: selectedSlot.contains('Morning'),
                             selectedColor: _green.withValues(alpha: 0.18),
+                            checkmarkColor: _green,
                             labelStyle: TextStyle(
                               color: selectedSlot.contains('Morning') ? _green : Colors.black87,
-                              fontWeight: selectedSlot.contains('Morning') ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: FontWeight.bold,
                             ),
                             onSelected: (sel) {
-                              if (sel) setModalState(() => selectedSlot = 'Morning (5:00 AM - 9:30 AM)');
+                              if (sel) setModalState(() => selectedSlot = 'Morning');
                             },
                           ),
                         ),
-                      if (!(isToday && now.hour >= 9)) const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Center(
-                            child: Text('🌇 Evening\n5:00 PM - 8:00 PM',
-                                textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+                      if (canSelectMorning && canSelectEvening) const SizedBox(width: 8),
+                      if (canSelectEvening)
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(
+                              child: Text('🌇 Evening',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                            selected: selectedSlot.contains('Evening'),
+                            selectedColor: _green.withValues(alpha: 0.18),
+                            checkmarkColor: _green,
+                            labelStyle: TextStyle(
+                              color: selectedSlot.contains('Evening') ? _green : Colors.black87,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            onSelected: (sel) {
+                              if (sel) setModalState(() => selectedSlot = 'Evening');
+                            },
                           ),
-                          selected: selectedSlot.contains('Evening'),
-                          selectedColor: _green.withValues(alpha: 0.18),
-                          labelStyle: TextStyle(
-                            color: selectedSlot.contains('Evening') ? _green : Colors.black87,
-                            fontWeight: selectedSlot.contains('Evening') ? FontWeight.bold : FontWeight.normal,
-                          ),
-                          onSelected: (sel) {
-                            if (sel) setModalState(() => selectedSlot = 'Evening (5:00 PM - 8:00 PM)');
-                          },
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -1937,7 +1583,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           children: [
                             const Text('Selected Slot:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
-                              selectedSlot.replaceAll('🌅 ', '').replaceAll('🌇 ', ''),
+                              selectedSlot,
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
                             ),
                           ],

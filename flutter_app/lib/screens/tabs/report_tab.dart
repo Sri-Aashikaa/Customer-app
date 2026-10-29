@@ -42,6 +42,59 @@ class _ReportTabState extends State<ReportTab> {
     _load();
   }
 
+  String _formatSlotOnly(String raw) {
+    final l = raw.toLowerCase();
+    if (l.contains('both')) return 'Both';
+    if (l.contains('evening') ||
+        (l.contains('pm') &&
+            (l.contains('4:') ||
+                l.contains('5:') ||
+                l.contains('6:') ||
+                l.contains('7:') ||
+                l.contains('8:')))) {
+      return 'Evening';
+    }
+    return 'Morning';
+  }
+
+  String _formatDeliveredTime(Map<String, dynamic> info) {
+    if (info['status'] == 'PAUSED') return 'N/A (Paused)';
+
+    // 1. Try explicit delivered_at timestamp
+    final rawDeliveredAt = info['delivered_at']?.toString();
+    if (rawDeliveredAt != null && rawDeliveredAt.isNotEmpty && rawDeliveredAt != 'null') {
+      try {
+        final dt = DateTime.parse(rawDeliveredAt).toLocal();
+        return DateFormat('hh:mm a').format(dt);
+      } catch (_) {}
+    }
+
+    // 2. Try delivery_time
+    final rawDeliveryTime = info['delivery_time']?.toString();
+    if (rawDeliveryTime != null && rawDeliveryTime.isNotEmpty && rawDeliveryTime != 'null') {
+      try {
+        final dt = DateTime.parse(rawDeliveryTime).toLocal();
+        return DateFormat('hh:mm a').format(dt);
+      } catch (_) {
+        if (rawDeliveryTime.contains(':')) return rawDeliveryTime;
+      }
+    }
+
+    // 3. Try delivery_timing (e.g., "6:00 AM - 7:00 AM")
+    final rawTiming = (info['delivery_timing'] ?? info['timing_slot'] ?? '').toString();
+    final timeMatch = RegExp(
+            r'(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)',
+            caseSensitive: false)
+        .firstMatch(rawTiming);
+    if (timeMatch != null && timeMatch.group(1) != null) {
+      return timeMatch.group(1)!;
+    }
+
+    // 4. Fallback based on slot
+    final slot = _formatSlotOnly(rawTiming);
+    return slot == 'Evening' ? '6:00 PM - 7:00 PM' : '6:00 AM - 7:00 AM';
+  }
+
   void _applyPeriod(String period) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -113,7 +166,12 @@ class _ReportTabState extends State<ReportTab> {
       (_subscription?['daily_quantity'] ?? widget.customer['milk_quantity'] ?? 1.0).toString(),
     ) ?? 1.0;
 
-    final timingSlot = (_subscription?['timing_slot'] ?? widget.customer['delivery_timing'] ?? 'Morning (5:00 AM - 9:30 AM)').toString();
+    final timingSlot = (_subscription?['timing_slot'] ??
+            _subscription?['delivery_timing'] ??
+            widget.customer['delivery_timing'] ??
+            widget.customer['timing_slot'] ??
+            'Morning')
+        .toString();
 
     // 1. Check for cancellation on this date
     final cancelMatch = _cancellations.firstWhere(
@@ -136,6 +194,9 @@ class _ReportTabState extends State<ReportTab> {
         'amount': 0.0,
         'reason': reason,
         'timing_slot': timingSlot,
+        'delivery_timing': timingSlot,
+        'delivery_time': null,
+        'delivered_at': null,
         'is_future': isFuture,
         'is_today': isToday,
         'has_record': true,
@@ -158,6 +219,7 @@ class _ReportTabState extends State<ReportTab> {
           ? double.tryParse(deliveryMatch['total_amount'].toString()) ?? (qty * _ratePerLiter)
           : (qty * _ratePerLiter);
       final notes = deliveryMatch['notes']?.toString() ?? 'Delivered to designated drop location';
+      final rowTiming = (deliveryMatch['delivery_timing'] ?? deliveryMatch['timing_slot'] ?? timingSlot).toString();
 
       return {
         'date': date,
@@ -167,7 +229,10 @@ class _ReportTabState extends State<ReportTab> {
         'quantity': qty,
         'amount': amount,
         'reason': notes,
-        'timing_slot': deliveryMatch['timing_slot']?.toString() ?? timingSlot,
+        'timing_slot': rowTiming,
+        'delivery_timing': rowTiming,
+        'delivery_time': deliveryMatch['delivery_time'],
+        'delivered_at': deliveryMatch['delivered_at'],
         'is_future': isFuture,
         'is_today': isToday,
         'has_record': true,
@@ -185,6 +250,9 @@ class _ReportTabState extends State<ReportTab> {
         'amount': defaultQty * _ratePerLiter,
         'reason': 'Scheduled routine delivery drop',
         'timing_slot': timingSlot,
+        'delivery_timing': timingSlot,
+        'delivery_time': null,
+        'delivered_at': null,
         'is_future': true,
         'is_today': false,
         'has_record': false,
@@ -201,6 +269,9 @@ class _ReportTabState extends State<ReportTab> {
       'amount': defaultQty * _ratePerLiter,
       'reason': isToday ? 'Delivered early morning' : 'Delivered as per active subscription plan',
       'timing_slot': timingSlot,
+      'delivery_timing': timingSlot,
+      'delivery_time': null,
+      'delivered_at': null,
       'is_future': false,
       'is_today': isToday,
       'has_record': false,
@@ -459,7 +530,9 @@ class _ReportTabState extends State<ReportTab> {
                       _slipRow('Quantity', isPaused ? '0.0 Liters (Paused)' : '${qty.toStringAsFixed(1)} Liters'),
                       _slipRow('Bottle Packing', _formatBottles(qty)),
                       _slipRow('Rate per Liter', '₹${_ratePerLiter.toStringAsFixed(2)} / Liter'),
-                      _slipRow('Delivery Slot', info['timing_slot'].toString()),
+                      _slipRow('Delivery Slot', _formatSlotOnly(info['timing_slot'].toString())),
+                      if (!isPaused)
+                        _slipRow(isDelivered ? 'Delivered Time' : 'Scheduled Time', _formatDeliveredTime(info)),
                       const Divider(height: 16),
                       _slipRow('Day Total Amount', '₹${amt.toStringAsFixed(2)}', isTotal: true),
                     ],
@@ -1233,16 +1306,31 @@ class _ReportTabState extends State<ReportTab> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.access_time, size: 16, color: Colors.blue),
+                    const Icon(Icons.wb_sunny_outlined, size: 16, color: Colors.amber),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Timing: ${info['timing_slot']}',
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF334155)),
+                        'Slot: ${_formatSlotOnly(info['timing_slot'].toString())}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
                       ),
                     ),
                   ],
                 ),
+                if (!isPaused) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time, size: 16, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${isDelivered ? "Delivered" : "Scheduled"} Time: ${_formatDeliveredTime(info)}',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF334155)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1353,7 +1441,9 @@ class _ReportTabState extends State<ReportTab> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    isPaused ? 'Paused: ${info['reason']}' : 'Raw Farm Milk • ${info['timing_slot']}',
+                    isPaused
+                        ? 'Paused: ${info['reason']}'
+                        : 'Raw Farm Milk • Slot: ${_formatSlotOnly(info['timing_slot'].toString())} • ${_formatDeliveredTime(info)}',
                     style: TextStyle(
                       fontSize: 10,
                       color: isPaused ? Colors.orange.shade800 : Colors.grey.shade600,

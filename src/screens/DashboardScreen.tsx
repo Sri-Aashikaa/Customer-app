@@ -19,6 +19,18 @@ export const DashboardScreen: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [additionalOrders, setAdditionalOrders] = useState<any[]>([]);
+  const [orderTimings, setOrderTimings] = useState<any>(null);
+
+  useEffect(() => {
+    ServerAPI.fetchOrderTimingsConfig().then(res => {
+      if (res) {
+        setOrderTimings(res);
+        if (res.morning_slot_label) {
+          setSelectedSlot(res.morning_slot_label);
+        }
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (customer?.id || customer?.customer_id) {
@@ -40,9 +52,55 @@ export const DashboardScreen: React.FC = () => {
   const rate = 65;
   const totalAmount = selectedQty * rate;
 
+  const handleOpenOrderModal = async () => {
+    const pin = (customer?.pincode || '').trim();
+    if (pin) {
+      const isServiceable = await ServerAPI.isPincodeServiceable(pin);
+      if (!isServiceable) {
+        await ServerAPI.recordUnserviceableLocationRequest({
+          pincode: pin,
+          areaName: customer?.area,
+          city: customer?.city || 'Chennai',
+          customerName: customer?.name,
+          customerMobile: customer?.mobile,
+          fullAddress: customer?.address,
+        });
+        Alert.alert(
+          'Delivery Notice',
+          `“We are not available at your location yet, but we will quickly reach to your location”\n\nYour location request for Pincode ${pin} has been recorded in our operations panel.`,
+          [{ text: 'Understood' }]
+        );
+        return;
+      }
+    }
+    setShowOrderModal(true);
+  };
+
   const handlePlaceOrder = async () => {
     setSubmitting(true);
     try {
+      const pin = (customer?.pincode || '').trim();
+      if (pin) {
+        const isServiceable = await ServerAPI.isPincodeServiceable(pin);
+        if (!isServiceable) {
+          setShowOrderModal(false);
+          await ServerAPI.recordUnserviceableLocationRequest({
+            pincode: pin,
+            areaName: customer?.area,
+            city: customer?.city || 'Chennai',
+            customerName: customer?.name,
+            customerMobile: customer?.mobile,
+            fullAddress: customer?.address,
+          });
+          Alert.alert(
+            'Delivery Notice',
+            `“We are not available at your location yet, but we will quickly reach to your location”\n\nYour location request for Pincode ${pin} has been recorded in our operations panel.`,
+            [{ text: 'Understood' }]
+          );
+          return;
+        }
+      }
+
       const res = await ServerAPI.createAdditionalMilkOrder({
         customer,
         deliveryDate: orderDate,
@@ -150,7 +208,7 @@ export const DashboardScreen: React.FC = () => {
       {/* ORDER ADDITIONAL MILK BANNER CARD */}
       <TouchableOpacity
         style={styles.additionalOrderBanner}
-        onPress={() => setShowOrderModal(true)}
+        onPress={handleOpenOrderModal}
         activeOpacity={0.88}
       >
         <View style={styles.additionalOrderIconBg}>
@@ -249,48 +307,94 @@ export const DashboardScreen: React.FC = () => {
             </View>
 
             {/* DATE SELECTION */}
-            <Text style={styles.fieldLabel}>1. Select Delivery Date (YYYY-MM-DD)</Text>
-            <View style={styles.chipRow}>
-              {[1, 2, 3].map((offset) => {
-                const target = new Date();
-                target.setDate(target.getDate() + offset);
-                const iso = target.toISOString().split('T')[0];
-                const isSel = orderDate === iso;
-                const label = offset === 1 ? 'Tomorrow' : offset === 2 ? 'Day After' : `${target.getDate()}/${target.getMonth() + 1}`;
-                return (
-                  <TouchableOpacity
-                    key={iso}
-                    style={[styles.chip, isSel && styles.chipActive]}
-                    onPress={() => setOrderDate(iso)}
-                  >
-                    <Text style={[styles.chipText, isSel && styles.chipTextActive]}>
-                      {label} ({target.getDate()}/{target.getMonth() + 1})
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {(() => {
+              const now = new Date();
+              const currentMins = now.getHours() * 60 + now.getMinutes();
+              const parseMins = (str?: string, def = 540) => {
+                if (!str) return def;
+                const match = str.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+                if (!match) return def;
+                let h = parseInt(match[1], 10);
+                const m = parseInt(match[2], 10);
+                const mod = match[3]?.toUpperCase();
+                if (mod === 'PM' && h < 12) h += 12;
+                if (mod === 'AM' && h === 12) h = 0;
+                return h * 60 + m;
+              };
 
-            {/* SLOT SELECTION */}
-            <Text style={styles.fieldLabel}>2. Select Delivery Slot</Text>
-            <View style={styles.chipRow}>
-              <TouchableOpacity
-                style={[styles.chip, selectedSlot.includes('Morning') && styles.chipActive]}
-                onPress={() => setSelectedSlot('Morning (5:00 AM - 9:30 AM)')}
-              >
-                <Text style={[styles.chipText, selectedSlot.includes('Morning') && styles.chipTextActive]}>
-                  🌅 Morning (5:00 - 9:30 AM)
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chip, selectedSlot.includes('Evening') && styles.chipActive]}
-                onPress={() => setSelectedSlot('Evening (5:00 PM - 8:00 PM)')}
-              >
-                <Text style={[styles.chipText, selectedSlot.includes('Evening') && styles.chipTextActive]}>
-                  🌇 Evening (5:00 - 8:00 PM)
-                </Text>
-              </TouchableOpacity>
-            </View>
+              const morningCutoffMins = parseMins(orderTimings?.morning_cutoff_time, 9 * 60);
+              const eveningCutoffMins = parseMins(orderTimings?.evening_cutoff_time, 17 * 60);
+
+              const morningPassedToday = currentMins >= morningCutoffMins;
+              const eveningPassedToday = currentMins >= eveningCutoffMins;
+              const canOrderToday = orderTimings?.allow_same_day_orders !== false && !eveningPassedToday;
+
+              const morningSlotLabel = 'Morning';
+              const eveningSlotLabel = 'Evening';
+              const morningStart = orderTimings?.morning_slot_start || '5:00 AM';
+              const morningEnd = orderTimings?.morning_slot_end || '9:30 AM';
+              const eveningStart = orderTimings?.evening_slot_start || '5:00 PM';
+              const eveningEnd = orderTimings?.evening_slot_end || '8:00 PM';
+
+              const offsets = canOrderToday ? [0, 1, 2] : [1, 2, 3];
+              const isTodaySelected = orderDate === now.toISOString().split('T')[0];
+
+              return (
+                <>
+                  <Text style={styles.fieldLabel}>1. Select Delivery Date (YYYY-MM-DD)</Text>
+                  <View style={styles.chipRow}>
+                    {offsets.map((offset) => {
+                      const target = new Date();
+                      target.setDate(target.getDate() + offset);
+                      const iso = target.toISOString().split('T')[0];
+                      const isSel = orderDate === iso;
+                      const label = offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : offset === 2 ? 'Day After' : `${target.getDate()}/${target.getMonth() + 1}`;
+                      return (
+                        <TouchableOpacity
+                          key={iso}
+                          style={[styles.chip, isSel && styles.chipActive]}
+                          onPress={() => {
+                            setOrderDate(iso);
+                            if (offset === 0 && morningPassedToday) {
+                              setSelectedSlot(eveningSlotLabel);
+                            }
+                          }}
+                        >
+                          <Text style={[styles.chipText, isSel && styles.chipTextActive]}>
+                            {label} ({target.getDate()}/${target.getMonth() + 1})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* SLOT SELECTION */}
+                  <Text style={styles.fieldLabel}>2. Select Delivery Slot</Text>
+                  <View style={styles.chipRow}>
+                    {!(isTodaySelected && morningPassedToday) && (
+                      <TouchableOpacity
+                        style={[styles.chip, selectedSlot.includes('Morning') && styles.chipActive]}
+                        onPress={() => setSelectedSlot(morningSlotLabel)}
+                      >
+                        <Text style={[styles.chipText, selectedSlot.includes('Morning') && styles.chipTextActive]}>
+                          🌅 Morning
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {!(isTodaySelected && eveningPassedToday) && (
+                      <TouchableOpacity
+                        style={[styles.chip, selectedSlot.includes('Evening') && styles.chipActive]}
+                        onPress={() => setSelectedSlot(eveningSlotLabel)}
+                      >
+                        <Text style={[styles.chipText, selectedSlot.includes('Evening') && styles.chipTextActive]}>
+                          🌇 Evening
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
 
             {/* QUANTITY SELECTION */}
             <Text style={styles.fieldLabel}>3. Extra Milk Quantity</Text>

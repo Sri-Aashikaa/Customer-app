@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +8,7 @@ import '../../services/session_service.dart';
 import '../../widgets/location_picker_dialog.dart';
 import '../auth_screen.dart';
 import '../change_password_screen.dart';
+import '../deactivate_account_screen.dart';
 
 const _green = Color(0xFF059669);
 
@@ -36,8 +36,6 @@ class _ProfileTabState extends State<ProfileTab> {
   bool _autoUpdateEnabled = true;
   bool _isUpdating = false;
 
-  // Account Deletion State
-  bool _isDeletingAccount = false;
 
   @override
   void initState() {
@@ -306,514 +304,6 @@ class _ProfileTabState extends State<ProfileTab> {
         ],
       ),
     );
-  }
-
-  // ─── ACCOUNT DELETION FLOW (Pending Dues -> Agreement -> OTP -> Purge) ───
-
-  Future<void> _startAccountDeletionFlow() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(20),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: Colors.redAccent),
-                SizedBox(width: 16),
-                Text('Checking account balance & dues...', style: TextStyle(fontSize: 14)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final duesInfo = await SupabaseAPI.checkCustomerPendingDues(widget.customer);
-    if (!mounted) return;
-    Navigator.pop(context); // close progress dialog
-
-    final hasPending = duesInfo['has_pending_dues'] == true;
-    final pendingAmt = (duesInfo['pending_amount'] as num?)?.toDouble() ?? 0.0;
-
-    if (hasPending && pendingAmt > 0) {
-      _showPendingDuesDialog(pendingAmt);
-    } else {
-      _showDeletionAgreementDialog();
-    }
-  }
-
-  void _showPendingDuesDialog(double pendingAmt) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-        contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 15),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 24),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Pending Dues Detected',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                  SizedBox(height: 2),
-                  Text('Clear balance before deleting',
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFCA5A5)),
-              ),
-              child: Column(
-                children: [
-                  const Text('Outstanding Balance to Settle:',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF991B1B))),
-                  const SizedBox(height: 6),
-                  Text('₹${pendingAmt.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                          fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C))),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Your account has pending milk delivery dues or unpaid invoices. As per company policy, all pending dues must be paid before account deletion and permanent record purge can be completed.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.4),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _green,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
-            icon: const Icon(Icons.payment, size: 18),
-            label: Text('Pay Pending ₹${pendingAmt.toStringAsFixed(0)} Now'),
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (widget.onNavigateToTab != null) {
-                widget.onNavigateToTab!(4); // Switch to Payment Tab
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please navigate to the Payment tab to clear pending dues.'),
-                    backgroundColor: _green,
-                  ),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeletionAgreementDialog() {
-    bool agreed = false;
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-          contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 15),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 24),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Delete Account & Data',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                    SizedBox(height: 2),
-                    Text('Permanent Data Removal Agreement',
-                        style: TextStyle(fontSize: 12, color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('The following will be deleted & revoked permanently:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                    SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Text('All daily milk subscriptions and schedules will stop immediately.',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Text('Glass bottle & ice box allocations will be de-allocated and closed.',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Text('Past delivery history, invoices, and receipts will be purged.',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Text('Your mobile number and account credentials will be blocked from logging in again.',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () => setDialogState(() => agreed = !agreed),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Checkbox(
-                      value: agreed,
-                      activeColor: Colors.red,
-                      onChanged: (val) => setDialogState(() => agreed = val ?? false),
-                    ),
-                    const Expanded(
-                      child: Text(
-                        'I agree to delete all my data and deactivate my account permanently.',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: agreed ? Colors.red : Colors.grey,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-              icon: const Icon(Icons.shield_outlined, size: 18),
-              label: const Text('Proceed to OTP Authentication'),
-              onPressed: agreed
-                  ? () {
-                      Navigator.pop(ctx);
-                      _showDeletionOtpDialog();
-                    }
-                  : null,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDeletionOtpDialog() {
-    final generatedOtp = (100000 + Random().nextInt(900000)).toString();
-    final phone = widget.customer['mobile'] ?? widget.customer['phone'] ?? 'Registered Mobile';
-    final otpCtrl = TextEditingController();
-    String? errorText;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-          contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 15),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.sms_rounded, color: Colors.red, size: 24),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('OTP Authentication',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                    SizedBox(height: 2),
-                    Text('Security verification required',
-                        style: TextStyle(fontSize: 12, color: Colors.grey)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Enter the 6-digit authentication code sent to $phone to confirm permanent account deletion:',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
-              ),
-              const SizedBox(height: 12),
-
-              // Simulated SMS Alert Banner for Instant Usability
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFBFDBFE)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.mark_email_unread_outlined, color: Colors.blue, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('SMS OTP Verification Code',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A))),
-                          Text('Your 6-digit code is: $generatedOtp',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue)),
-                        ],
-                      ),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: () {
-                        setModalState(() {
-                          otpCtrl.text = generatedOtp;
-                          errorText = null;
-                        });
-                      },
-                      child: const Text('Auto-Fill', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              TextField(
-                controller: otpCtrl,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 6),
-                decoration: InputDecoration(
-                  counterText: '',
-                  hintText: '• • • • • •',
-                  hintStyle: const TextStyle(letterSpacing: 4, color: Colors.grey),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.red, width: 2)),
-                  errorText: errorText,
-                ),
-                onChanged: (_) {
-                  if (errorText != null) setModalState(() => errorText = null);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-              icon: const Icon(Icons.delete_forever_rounded, size: 18),
-              label: const Text('Confirm & Delete Account'),
-              onPressed: () {
-                final entered = otpCtrl.text.trim();
-                if (entered != generatedOtp) {
-                  setModalState(() => errorText = 'Invalid OTP. Please enter $generatedOtp');
-                  return;
-                }
-                Navigator.pop(ctx);
-                _executeAccountDeletion();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _executeAccountDeletion() async {
-    setState(() => _isDeletingAccount = true);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: Colors.red),
-                SizedBox(width: 18),
-                Text('Permanently deleting account & data...',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    try {
-      await SupabaseAPI.deleteCustomerAccount(widget.customer);
-      await UserSession.clearSession();
-
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-
-      // Show confirmation dialog before redirect
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: _green, size: 28),
-              SizedBox(width: 10),
-              Text('Account Deleted', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: const Text(
-            'Your account and all associated subscriptions have been permanently deleted and deactivated. You will not be able to log in with these credentials again.',
-            style: TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _green,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK, Go to Login'),
-            ),
-          ],
-        ),
-      );
-
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
-        (route) => false,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      setState(() => _isDeletingAccount = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete account: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 
   Future<void> _loadEnterpriseSettings() async {
@@ -1456,13 +946,29 @@ class _ProfileTabState extends State<ProfileTab> {
                                   'alternate_mobile': altMobileCtrl.text.trim(),
                                   'alt_mobile': altMobileCtrl.text.trim(),
                                   'email': emailCtrl.text.trim(),
-                                  'latitude': ?lat,
-                                  'longitude': ?lng,
+                                  'latitude': lat,
+                                  'longitude': lng,
                                 };
                                 final custId = widget.customer['id'] ??
                                     widget.customer['customer_id'] ??
                                     '';
                                 await SupabaseAPI.updateProfile(custId, updates);
+
+                                final newPin = pincodeCtrl.text.trim();
+                                final isServiceable = await SupabaseAPI.isPincodeServiceable(newPin);
+                                if (!isServiceable) {
+                                  await SupabaseAPI.recordUnserviceableLocationRequest(
+                                    pincode: newPin.isNotEmpty ? newPin : 'Unspecified',
+                                    areaName: areaCtrl.text.trim(),
+                                    city: cityCtrl.text.trim(),
+                                    customerName: (widget.customer['name'] ?? 'Customer').toString(),
+                                    customerMobile: (widget.customer['mobile'] ?? widget.customer['phone'] ?? '').toString(),
+                                    fullAddress: locationCtrl.text.trim(),
+                                    latitude: lat,
+                                    longitude: lng,
+                                    notes: 'Customer updated profile address with unserviceable pincode',
+                                  );
+                                }
 
                                 final updatedCust = {
                                   ...widget.customer,
@@ -1473,14 +979,41 @@ class _ProfileTabState extends State<ProfileTab> {
 
                                 if (context.mounted) {
                                   Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          '✅ Location and account details updated successfully!'),
-                                      backgroundColor: _green,
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
+                                  if (!isServiceable) {
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        title: const Row(
+                                          children: [
+                                            Icon(Icons.location_off_outlined, color: Colors.orange),
+                                            SizedBox(width: 8),
+                                            Text('Location Notice', style: TextStyle(fontSize: 16)),
+                                          ],
+                                        ),
+                                        content: Text(
+                                          '“We are not available at your location yet, but we will quickly reach to your location”\n\n'
+                                          'Your location request for Pincode $newPin has been sent to our operations depot.',
+                                          style: const TextStyle(fontSize: 13, height: 1.4),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text('OK', style: TextStyle(color: _green, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                            '✅ Location and account details updated successfully!'),
+                                        backgroundColor: _green,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
                                 }
                               } catch (e) {
                                 setModalState(() => isUpdating = false);
@@ -1625,11 +1158,11 @@ class _ProfileTabState extends State<ProfileTab> {
                   ),
                   const SizedBox(height: 12),
                   _detailRow(Icons.badge_outlined, 'Customer ID',
-                      c['customer_id'] ?? c['id'] ?? ''),
+                      (c['customer_id'] ?? c['id'] ?? '').toString()),
                   _detailRow(Icons.person_outline, 'Full Name',
-                      c['name'] ?? 'Customer'),
-                  _detailRow(Icons.home_outlined, 'Street Address',
-                      c['address'] ?? 'Not set'),
+                      (c['name'] ?? 'Customer').toString()),
+                  _detailRow(Icons.home_outlined, 'Delivery Address',
+                      _formatFullAddress(c)),
                   
                   const SizedBox(height: 8),
                   const Divider(),
@@ -1708,25 +1241,21 @@ class _ProfileTabState extends State<ProfileTab> {
                   ),
                   const SizedBox(height: 12),
                   _detailRow(Icons.phone_outlined, 'Primary Mobile',
-                      (c['mobile'] ?? c['phone'] ?? '-').toString()),
+                      _safeDisplay(c['mobile'] ?? c['phone'])),
                   _detailRow(Icons.phone_android_outlined, 'Alternate Mobile',
-                      (c['alternate_mobile'] ?? c['alt_mobile'] ?? 'Not set').toString().isNotEmpty
-                          ? (c['alternate_mobile'] ?? c['alt_mobile']).toString()
-                          : 'Not set'),
+                      _safeDisplay(c['alternate_mobile'] ?? c['alt_mobile'], 'Not provided')),
                   _detailRow(Icons.email_outlined, 'Email Address',
-                      (c['email'] ?? c['email_id'] ?? 'Not set').toString().isNotEmpty
-                          ? (c['email'] ?? c['email_id']).toString()
-                          : 'Not set'),
+                      _safeDisplay(c['email'] ?? c['email_id'], 'Not provided')),
                   _detailRow(Icons.payments_outlined, 'Payment Plan',
-                      (c['payment_period'] ?? c['billing_cycle'] ?? 'Weekly').toString().toUpperCase()),
+                      _safeDisplay(c['payment_period'] ?? c['billing_cycle'], 'Weekly').toUpperCase()),
                   _detailRow(Icons.location_city_outlined, 'Area',
-                      c['area'] ?? 'Anna Nagar'),
+                      _safeDisplay(c['area'] ?? c['location'], 'Anna Nagar')),
                   _detailRow(Icons.location_on_outlined, 'City',
-                      c['city'] ?? 'Chennai'),
+                      _safeDisplay(c['city'], 'Salem')),
                   _detailRow(Icons.markunread_mailbox_outlined, 'Pincode',
-                      c['pincode'] ?? '600040'),
+                      _safeDisplay(c['pincode'], '636004')),
                   _detailRow(Icons.map_outlined, 'Location',
-                      c['location'] ?? '${c['area'] ?? 'Anna Nagar'}, ${c['city'] ?? 'Chennai'}'),
+                      _formatFullAddress(c)),
                 ]),
           ),
         ),
@@ -1822,10 +1351,6 @@ class _ProfileTabState extends State<ProfileTab> {
                     _enterprise?['head_office_address'] ?? 'Plot 42, Dairy Tech Park, Salem'),
                 _detailRow(Icons.storefront_outlined, 'Central Hub',
                     _enterprise?['branch_address'] ?? 'Salem Central Hub, Meyyanur Bypass, Salem - 636004'),
-                _detailRow(Icons.schedule_outlined, 'Operating Shift',
-                    _enterprise?['default_shift'] ?? 'Morning Shift (05:00 AM - 07:30 AM)'),
-                _detailRow(Icons.payments_outlined, 'Payee UPI ID',
-                    _enterprise?['upi_id'] ?? 'amudhamdairy@upi'),
                 if (_enterprise?['website_url'] != null) ...[
                   const Divider(height: 16),
                   InkWell(
@@ -1965,46 +1490,7 @@ class _ProfileTabState extends State<ProfileTab> {
                 }),
                 const SizedBox(height: 10),
 
-                // Secondary Helpline if available
-                if (_enterprise?['secondary_phone'] != null) ...[
-                  Builder(builder: (_) {
-                    final secPhone = _enterprise!['secondary_phone'].toString();
-                    final secDigits = secPhone.replaceAll(RegExp(r'[^0-9+]'), '');
-                    return InkWell(
-                      onTap: () => _launchURL('tel:$secDigits'),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.phone_forwarded_outlined, color: Colors.blue),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Secondary Helpline Desk',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF0F172A),
-                                          fontSize: 13)),
-                                  Text(secPhone,
-                                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 10),
-                ],
+
 
                 // Email Support Button
                 Builder(builder: (_) {
@@ -2295,7 +1781,71 @@ class _ProfileTabState extends State<ProfileTab> {
         ),
         const SizedBox(height: 16),
 
-        // ── 7. Danger Zone: Delete Account & Data ───────────────────────────
+        // ── 7. Logout Account ──────────────────────────────────────────────
+        Card(
+          elevation: 1.5,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Account Session',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          ),
+                          Text(
+                            'Sign out of your customer account on this device',
+                            style: TextStyle(color: Colors.grey, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFDC2626),
+                      side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text(
+                      'Log Out',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    onPressed: () => _confirmLogout(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── 8. Danger Zone: Deactivate Account ─────────────────────────────
         Card(
           elevation: 1.5,
           shape: RoundedRectangleBorder(
@@ -2316,7 +1866,7 @@ class _ProfileTabState extends State<ProfileTab> {
                         color: const Color(0xFFFEE2E2),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 22),
+                      child: const Icon(Icons.no_accounts_rounded, color: Colors.red, size: 22),
                     ),
                     const SizedBox(width: 12),
                     const Expanded(
@@ -2324,11 +1874,11 @@ class _ProfileTabState extends State<ProfileTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Danger Zone: Delete Account',
+                            'Deactivate Account',
                             style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF991B1B)),
                           ),
                           Text(
-                            'Permanently delete your account, milk deliveries, and personal data',
+                            'Cancel active subscriptions, bottle allocations & close account',
                             style: TextStyle(color: Color(0xFF7F1D1D), fontSize: 11),
                           ),
                         ],
@@ -2351,7 +1901,7 @@ class _ProfileTabState extends State<ProfileTab> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Once deleted, your active subscriptions are cancelled and you will no longer be able to log in. Any outstanding balance must be cleared prior to deletion.',
+                          'Tap below to open terms & conditions, review consequences, and confirm permanent account deactivation.',
                           style: TextStyle(fontSize: 11.5, color: Color(0xFF475569), height: 1.35),
                         ),
                       ),
@@ -2368,15 +1918,19 @@ class _ProfileTabState extends State<ProfileTab> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    icon: _isDeletingAccount
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.delete_outline_rounded, size: 18),
-                    label: Text(_isDeletingAccount ? 'Processing Deletion...' : 'Delete Account & Erase Data'),
-                    onPressed: _isDeletingAccount ? null : _startAccountDeletionFlow,
+                    icon: const Icon(Icons.delete_forever_rounded, size: 18),
+                    label: const Text(
+                      'Deactivate Account ➔',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DeactivateAccountScreen(customer: widget.customer),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -2387,18 +1941,124 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
+  String _safeDisplay(dynamic value, [String fallback = 'Not set']) {
+    if (value == null) return fallback;
+    final str = value.toString().trim();
+    if (str.isEmpty || str.toLowerCase() == 'null' || str == 'undefined' || str == '-') {
+      return fallback;
+    }
+    return str;
+  }
+
+  String _formatFullAddress(Map<String, dynamic> c) {
+    final parts = <String>[];
+    void addIfValid(dynamic val) {
+      if (val == null) return;
+      final str = val.toString().trim();
+      if (str.isNotEmpty && str.toLowerCase() != 'null' && str != '-' && str != 'undefined') {
+        if (!parts.any((p) => p.toLowerCase() == str.toLowerCase())) {
+          parts.add(str);
+        }
+      }
+    }
+
+    addIfValid(c['address']);
+    addIfValid(c['location']);
+    addIfValid(c['area']);
+    addIfValid(c['city']);
+
+    final pin = c['pincode']?.toString().trim();
+    String addr = parts.join(', ');
+    if (pin != null && pin.isNotEmpty && pin.toLowerCase() != 'null' && pin != '-') {
+      if (addr.isNotEmpty) {
+        addr = '$addr - $pin';
+      } else {
+        addr = pin;
+      }
+    }
+    return addr.isNotEmpty ? addr : 'Not set';
+  }
+
   Widget _detailRow(IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(children: [
-        Icon(icon, size: 18, color: _green),
-        const SizedBox(width: 10),
-        Expanded(child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13))),
-        Flexible(
-            child: Text(value,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                textAlign: TextAlign.right)),
-      ]),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: _green),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF0F172A),
+              ),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Text('Log Out', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to log out of your account on this device?',
+          style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await UserSession.clearSession();
+              if (!context.mounted) return;
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const AuthScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('Yes, Log Out', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 }

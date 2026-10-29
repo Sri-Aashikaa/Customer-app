@@ -23,7 +23,6 @@ class _PaymentTabState extends State<PaymentTab> {
   Map<String, dynamic>? _subscription;
   Map<String, dynamic>? _todayDelivery;
   bool _loading = true;
-  bool _paying = false;
   String _historyFilter = 'ALL'; // 'ALL', 'PAID', 'PENDING'
 
   double _ratePerLiter = 65.0;
@@ -493,15 +492,50 @@ class _PaymentTabState extends State<PaymentTab> {
 
   // ── UPI Payment Flow ──────────────────────────────────────────────────────
 
-  void _showUPIPaymentBottomSheet(double amount, String periodLabel) {
-    final upiId = _enterprise?['upi_id'] ?? 'amudhamdairy@upi';
+  Future<void> _initiateDirectUPIPayment(double amount, String periodLabel) async {
+    final upiId = (_enterprise?['upi_id'] ?? 'amudhamdairy@upi').toString().trim();
     final payeeName =
-        _enterprise?['upi_payee_name'] ?? 'Amudham Milk Enterprises';
+        (_enterprise?['upi_payee_name'] ?? 'Amudham Milk Enterprises').toString().trim();
     final amtStr = amount.toStringAsFixed(2);
+    final custName = (widget.customer['name'] ?? 'Customer').toString();
+    final txnRef = 'UPI-${DateTime.now().millisecondsSinceEpoch}';
+    final note = 'Milk Bill $periodLabel - $custName';
+
     final upiUrl =
-        'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=$amtStr&cu=INR&tn=${Uri.encodeComponent('Milk Bill: $periodLabel')}';
-    final qrUrl =
-        'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(upiUrl)}';
+        'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=$amtStr&cu=INR&tn=${Uri.encodeComponent(note)}&tr=$txnRef';
+    final uri = Uri.parse(upiUrl);
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        Clipboard.setData(ClipboardData(text: upiId));
+      }
+    } catch (_) {
+      Clipboard.setData(ClipboardData(text: upiId));
+    }
+
+    if (!mounted) return;
+
+    _showPaymentConfirmationSheet(
+      amount: amount,
+      periodLabel: periodLabel,
+      upiId: upiId,
+      payeeName: payeeName,
+      defaultTxnRef: txnRef,
+    );
+  }
+
+  void _showPaymentConfirmationSheet({
+    required double amount,
+    required String periodLabel,
+    required String upiId,
+    required String payeeName,
+    required String defaultTxnRef,
+  }) {
+    final refCtrl = TextEditingController(text: defaultTxnRef);
+    final upiIdCtrl = TextEditingController(text: upiId);
+    bool confirming = false;
 
     showModalBottomSheet(
       context: context,
@@ -511,7 +545,12 @@ class _PaymentTabState extends State<PaymentTab> {
         return StatefulBuilder(
           builder: (modalCtx, setModalState) {
             return Container(
-              padding: const EdgeInsets.all(22),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 20,
+              ),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -519,16 +558,21 @@ class _PaymentTabState extends State<PaymentTab> {
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
+
+                    // Header
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -540,18 +584,18 @@ class _PaymentTabState extends State<PaymentTab> {
                                 color: const Color(0xFFECFDF5),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(Icons.qr_code_2,
+                              child: const Icon(Icons.verified_user_rounded,
                                   color: _green, size: 24),
                             ),
                             const SizedBox(width: 10),
                             const Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Weekly UPI Payment',
+                                Text('Confirm UPI Payment',
                                     style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold)),
-                                Text('Scan & Pay via GPay, PhonePe, Paytm',
+                                Text('Save & settle bill with server',
                                     style: TextStyle(
                                         fontSize: 11, color: Colors.grey)),
                               ],
@@ -564,89 +608,18 @@ class _PaymentTabState extends State<PaymentTab> {
                         ),
                       ],
                     ),
-                    const Divider(height: 24),
+                    const Divider(height: 20),
 
-                    // Amount Display
+                    // Amount Display Box
                     Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        children: [
-                          const Text('Weekly Delivered Milk Amount',
-                              style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          Text(
-                            '₹${amount.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                              color: _green,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          Text(periodLabel,
-                              style: const TextStyle(
-                                  color: Colors.grey, fontSize: 11)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // QR Code
-                    Center(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(
-                                color: _green.withValues(alpha: 0.3),
-                                width: 1.5),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Image.network(
-                            qrUrl,
-                            width: 170,
-                            height: 170,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                              width: 170,
-                              height: 170,
-                              color: Colors.grey.shade100,
-                              child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.qr_code,
-                                      size: 50, color: Colors.grey),
-                                  SizedBox(height: 6),
-                                  Text('QR Code',
-                                      style: TextStyle(
-                                          fontSize: 11, color: Colors.grey)),
-                                ],
-                              ),
-                            ),
-                          ),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF047857), Color(0xFF10B981)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // UPI ID with 1-Tap Copy
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -654,105 +627,184 @@ class _PaymentTabState extends State<PaymentTab> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Payee UPI ID',
+                              const Text('Payment Amount Due',
                                   style: TextStyle(
-                                      fontSize: 10, color: Colors.grey)),
-                              Text(upiId,
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 2),
+                              Text(
+                                '₹${amount.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  fontSize: 30,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              Text(periodLabel,
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      fontFamily: 'monospace')),
+                                      color: Colors.white70, fontSize: 11)),
                             ],
                           ),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: _green,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            icon: const Icon(Icons.copy, size: 14),
-                            label: const Text('Copy',
+                            child: const Text('UPI Payment',
                                 style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12)),
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: upiId));
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(const SnackBar(
-                                content: Text('✅ UPI ID copied to clipboard!'),
-                                backgroundColor: _green,
-                                behavior: SnackBarBehavior.floating,
-                                duration: Duration(seconds: 2),
-                              ));
-                            },
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 14),
 
-                    // Launch in UPI App Button
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _green,
-                        side: const BorderSide(color: _green, width: 1.3),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        minimumSize: const Size(double.infinity, 46),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                    // Details Card
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      icon: const Icon(Icons.open_in_new, size: 16),
-                      label: const Text('Open in Installed UPI App',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 13)),
-                      onPressed: () async {
-                        final uri = Uri.parse(upiUrl);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri,
-                              mode: LaunchMode.externalApplication);
-                        } else {
-                          Clipboard.setData(ClipboardData(text: upiId));
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context)
-                              .showSnackBar(const SnackBar(
-                            content: Text(
-                                'UPI app not found. UPI ID copied to clipboard!'),
-                            backgroundColor: _green,
-                            behavior: SnackBarBehavior.floating,
-                          ));
-                        }
-                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Company UPI ID:',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              Text(upiId,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace')),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Beneficiary:',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              Text(payeeName,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Transaction Ref / UTR Input
+                    TextField(
+                      controller: refCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Transaction Reference / UTR Number',
+                        hintText: 'e.g. 12-digit UTR from GPay / PhonePe',
+                        prefixIcon: const Icon(Icons.receipt_long, color: _green, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
                     ),
                     const SizedBox(height: 10),
 
-                    // "I Have Paid" Button
+                    // Payer UPI ID / Account
+                    TextField(
+                      controller: upiIdCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Paid via UPI ID',
+                        hintText: 'e.g. yourname@okaxis or amudhamdairy@upi',
+                        prefixIcon: const Icon(Icons.account_balance_wallet_outlined, color: _green, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Confirm and Settle Button
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
+                        elevation: 2,
                       ),
-                      onPressed: _paying
+                      onPressed: confirming
                           ? null
                           : () async {
-                              setModalState(() => _paying = true);
-                              Navigator.pop(modalCtx);
-                              await _recordWeeklyPayment(amount, periodLabel);
+                              setModalState(() => confirming = true);
+                              try {
+                                final name = widget.customer['name'] ?? 'Customer';
+                                final phone = widget.customer['phone'] ?? widget.customer['mobile'] ?? '';
+                                final finalRef = refCtrl.text.trim().isNotEmpty
+                                    ? refCtrl.text.trim()
+                                    : defaultTxnRef;
+                                final finalUpi = upiIdCtrl.text.trim().isNotEmpty
+                                    ? upiIdCtrl.text.trim()
+                                    : upiId;
+
+                                await SupabaseAPI.processPayment(
+                                  widget.customer,
+                                  name,
+                                  phone,
+                                  amount,
+                                  billingPeriod: periodLabel,
+                                  upiId: finalUpi,
+                                  transactionRef: finalRef,
+                                );
+
+                                if (modalCtx.mounted) Navigator.pop(modalCtx);
+                                widget.onPaymentDone();
+                                await _load();
+
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('✅ Payment of ₹${amount.toInt()} Verified & Settled!\nRef: $finalRef'),
+                                    backgroundColor: _green,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              } catch (e) {
+                                setModalState(() => confirming = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to confirm payment: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
                             },
-                      child: _paying
+                      child: confirming
                           ? const SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
                           : const Text(
-                              'I Have Paid • Mark Weekly Bill as Paid ➔',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 14),
+                              'Payment Completed • Confirm & Settle Bill ➔',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                             ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Cancel / Retry later
+                    TextButton(
+                      onPressed: () => Navigator.pop(modalCtx),
+                      child: const Text('Cancel / Pay Later',
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
                     ),
                   ],
                 ),
@@ -762,42 +814,6 @@ class _PaymentTabState extends State<PaymentTab> {
         );
       },
     );
-  }
-
-  Future<void> _recordWeeklyPayment(
-      double amount, String periodDescription) async {
-    setState(() => _paying = true);
-    try {
-      final name = widget.customer['name'] ?? 'Customer';
-      final phone =
-          widget.customer['phone'] ?? widget.customer['mobile'] ?? '';
-      final ref = await SupabaseAPI.processPayment(
-        widget.customer,
-        name,
-        phone,
-        amount,
-        billingPeriod: periodDescription,
-      );
-
-      widget.onPaymentDone();
-      await _load();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('✅ Weekly Payment Successful!\nRef: $ref'),
-        backgroundColor: _green,
-        behavior: SnackBarBehavior.floating,
-      ));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Payment update failed: $e'),
-          backgroundColor: Colors.red,
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _paying = false);
-    }
   }
 
   // ── Invoice Dialog ────────────────────────────────────────────────────────
@@ -1298,53 +1314,29 @@ class _PaymentTabState extends State<PaymentTab> {
                 ),
                 const SizedBox(height: 18),
 
-                // Pay / QR Buttons Row
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF047857),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: const Icon(Icons.payment, size: 18),
-                        label: Text(
-                          isCyclePaid ? 'Pay Advance / Recharge' : 'Pay ₹${deliveredAmount.toInt()} via UPI ➔',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                        onPressed: () {
-                          final payAmount = deliveredAmount > 0
-                              ? deliveredAmount
-                              : (dailyQty * _ratePerLiter * totalPossibleCycleDays);
-                          _showUPIPaymentBottomSheet(payAmount, cyclePeriodLabel);
-                        },
-                      ),
+                // Pay Button (Full Width, UPI Direct Launch)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF047857),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.white, width: 1.5),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: const Icon(Icons.qr_code, size: 16),
-                        label: const Text('UPI QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                        onPressed: () {
-                          final payAmount = deliveredAmount > 0
-                              ? deliveredAmount
-                              : (dailyQty * _ratePerLiter * totalPossibleCycleDays);
-                          _showUPIPaymentBottomSheet(payAmount, cyclePeriodLabel);
-                        },
-                      ),
+                    icon: const Icon(Icons.payment, size: 20),
+                    label: Text(
+                      isCyclePaid ? 'Pay Advance / Recharge ➔' : 'Pay ₹${deliveredAmount.toInt()} via UPI ➔',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
-                  ],
+                    onPressed: () {
+                      final payAmount = deliveredAmount > 0
+                          ? deliveredAmount
+                          : (dailyQty * _ratePerLiter * totalPossibleCycleDays);
+                      _initiateDirectUPIPayment(payAmount, cyclePeriodLabel);
+                    },
+                  ),
                 ),
               ],
             ),

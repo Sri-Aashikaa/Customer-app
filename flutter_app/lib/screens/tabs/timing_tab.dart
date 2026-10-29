@@ -14,6 +14,7 @@ class TimingTab extends StatefulWidget {
 
 class _TimingTabState extends State<TimingTab> {
   Map<String, dynamic>? _subscription;
+  Map<String, dynamic>? _orderTimings;
   bool _loading = true;
 
   @override
@@ -22,9 +23,25 @@ class _TimingTabState extends State<TimingTab> {
     _loadSubscription();
   }
 
+  String _formatSlotOnly(String raw) {
+    final l = raw.toLowerCase();
+    if (l.contains('both')) return 'Both';
+    if (l.contains('evening') ||
+        (l.contains('pm') &&
+            (l.contains('4:') ||
+                l.contains('5:') ||
+                l.contains('6:') ||
+                l.contains('7:') ||
+                l.contains('8:')))) {
+      return 'Evening';
+    }
+    return 'Morning';
+  }
+
   Future<void> _loadSubscription() async {
     final custId = widget.customer['id'] ?? widget.customer['customer_id'] ?? '';
     var sub = await SupabaseAPI.fetchCustomerSubscription(custId);
+    final timings = await SupabaseAPI.fetchOrderTimingsConfig();
 
     // If no subscription record exists in customer_subscriptions table yet, seed it now
     if (sub == null && custId.toString().isNotEmpty) {
@@ -49,6 +66,7 @@ class _TimingTabState extends State<TimingTab> {
     if (mounted) {
       setState(() {
         _subscription = sub;
+        _orderTimings = timings;
         _loading = false;
       });
     }
@@ -141,9 +159,9 @@ class _TimingTabState extends State<TimingTab> {
                       Expanded(
                         child: ChoiceChip(
                           label: const Center(
-                              child: Text('🌅 Morning\n5:00 - 9:30 AM',
+                              child: Text('🌅 Morning',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 11))),
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Morning',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -151,9 +169,7 @@ class _TimingTabState extends State<TimingTab> {
                             color: selectedSlot == 'Morning'
                                 ? _green
                                 : Colors.black87,
-                            fontWeight: selectedSlot == 'Morning'
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight: FontWeight.bold,
                           ),
                           onSelected: (sel) {
                             if (sel) {
@@ -168,9 +184,9 @@ class _TimingTabState extends State<TimingTab> {
                       Expanded(
                         child: ChoiceChip(
                           label: const Center(
-                              child: Text('🌇 Evening\n5:00 - 8:00 PM',
+                              child: Text('🌇 Evening',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 11))),
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Evening',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -178,9 +194,7 @@ class _TimingTabState extends State<TimingTab> {
                             color: selectedSlot == 'Evening'
                                 ? _green
                                 : Colors.black87,
-                            fontWeight: selectedSlot == 'Evening'
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight: FontWeight.bold,
                           ),
                           onSelected: (sel) {
                             if (sel) {
@@ -195,9 +209,9 @@ class _TimingTabState extends State<TimingTab> {
                       Expanded(
                         child: ChoiceChip(
                           label: const Center(
-                              child: Text('🔄 Both\nMorning & Evening',
+                              child: Text('🔄 Both',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 11))),
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Both',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -205,9 +219,7 @@ class _TimingTabState extends State<TimingTab> {
                             color: selectedSlot == 'Both'
                                 ? _green
                                 : Colors.black87,
-                            fontWeight: selectedSlot == 'Both'
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight: FontWeight.bold,
                           ),
                           onSelected: (sel) {
                             if (sel) {
@@ -386,11 +398,11 @@ class _TimingTabState extends State<TimingTab> {
                                   '';
                                final String finalSlotText;
                                if (selectedSlot == 'Evening') {
-                                 finalSlotText = 'Evening (5:00 PM - 8:00 PM)';
+                                 finalSlotText = 'Evening';
                                } else if (selectedSlot == 'Both') {
                                  finalSlotText = 'Both (Morning & Evening)';
                                } else {
-                                 finalSlotText = 'Morning (5:00 AM - 9:30 AM)';
+                                 finalSlotText = 'Morning';
                                }
 
                               String finalDaysText = activePlanOption;
@@ -481,14 +493,141 @@ class _TimingTabState extends State<TimingTab> {
     );
   }
 
+  void _showUnserviceableDialog(String pincode) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFDE68A), width: 2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.location_off_outlined, color: Color(0xFFD97706), size: 30),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delivery Notice',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Pincode: $pincode',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0284C7)),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E293B),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'We have logged your location in our operations panel and will notify you as soon as morning & evening delivery commences here!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkServiceabilityAndOpenAdditionalOrder() async {
+    final custPincode = (widget.customer['pincode'] ?? '').toString().trim();
+    if (custPincode.isNotEmpty) {
+      final serviceable = await SupabaseAPI.isPincodeServiceable(custPincode);
+      if (!serviceable) {
+        if (!mounted) return;
+        _showUnserviceableDialog(custPincode);
+        return;
+      }
+    }
+    _openAdditionalOrderBottomSheet();
+  }
+
   void _openAdditionalOrderBottomSheet() {
     final now = DateTime.now();
-    DateTime selectedDate = now.hour < 16 ? now : now.add(const Duration(days: 1));
+    final timings = _orderTimings ?? const {};
+    final morningCutoffStr = (timings['morning_cutoff_time'] ?? '09:00 AM').toString();
+    final eveningCutoffStr = (timings['evening_cutoff_time'] ?? '05:00 PM').toString();
+    final morningStart = (timings['morning_slot_start'] ?? '5:00 AM').toString();
+    final morningEnd = (timings['morning_slot_end'] ?? '9:30 AM').toString();
+    final eveningStart = (timings['evening_slot_start'] ?? '5:00 PM').toString();
+    final eveningEnd = (timings['evening_slot_end'] ?? '8:00 PM').toString();
 
-    String selectedSlot = 'Morning (5:00 AM - 9:30 AM)';
+    final morningSlotLabel = (timings['morning_slot_label'] ?? 'Morning ($morningStart - $morningEnd)').toString();
+    final eveningSlotLabel = (timings['evening_slot_label'] ?? 'Evening ($eveningStart - $eveningEnd)').toString();
+
+    final morningEnabled = timings['morning_slot_enabled'] != false;
+    final eveningEnabled = timings['evening_slot_enabled'] != false;
+    final allowSameDay = timings['allow_same_day_orders'] != false;
+    final maxAdvanceDays = int.tryParse((timings['max_advance_days'] ?? 30).toString()) ?? 30;
+
+    final nowMins = now.hour * 60 + now.minute;
+    final morningCutoffMins = SupabaseAPI.parseTimeToMinutes(morningCutoffStr, defaultMinutes: 9 * 60);
+    final eveningCutoffMins = SupabaseAPI.parseTimeToMinutes(eveningCutoffStr, defaultMinutes: 17 * 60);
+
+    final isMorningPassedToday = nowMins >= morningCutoffMins;
+    final isEveningPassedToday = nowMins >= eveningCutoffMins;
+    final isTodayAvailable = allowSameDay && !isEveningPassedToday;
+
+    final tomorrow = now.add(const Duration(days: 1));
+    DateTime selectedDate = isTodayAvailable ? now : tomorrow;
+
+    String selectedSlot = morningSlotLabel;
     final custSlot = (widget.customer['delivery_timing'] ?? widget.customer['delivery_slot'] ?? '').toString().toLowerCase();
-    if (custSlot.contains('evening') || (selectedDate.day == now.day && now.hour >= 9)) {
-      selectedSlot = 'Evening (5:00 PM - 8:00 PM)';
+    if (selectedDate.day == now.day && isMorningPassedToday) {
+      selectedSlot = eveningSlotLabel;
+    } else if (custSlot.contains('evening') && eveningEnabled) {
+      selectedSlot = eveningSlotLabel;
+    } else if (morningEnabled) {
+      selectedSlot = morningSlotLabel;
+    } else {
+      selectedSlot = eveningSlotLabel;
     }
 
     double selectedQty = 1.0;
@@ -504,10 +643,12 @@ class _TimingTabState extends State<TimingTab> {
         builder: (modalCtx, setModalState) {
           final totalAmount = (selectedQty * rate);
           final isToday = selectedDate.year == now.year && selectedDate.month == now.month && selectedDate.day == now.day;
-          final tomorrow = now.add(const Duration(days: 1));
           final isTomorrow = selectedDate.year == tomorrow.year && selectedDate.month == tomorrow.month && selectedDate.day == tomorrow.day;
           final dayAfter = now.add(const Duration(days: 2));
           final isDayAfter = selectedDate.year == dayAfter.year && selectedDate.month == dayAfter.month && selectedDate.day == dayAfter.day;
+
+          final canSelectMorning = isToday ? (!isMorningPassedToday && morningEnabled) : morningEnabled;
+          final canSelectEvening = isToday ? (!isEveningPassedToday && eveningEnabled) : eveningEnabled;
 
           return Container(
             padding: EdgeInsets.only(
@@ -607,7 +748,7 @@ class _TimingTabState extends State<TimingTab> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (now.hour < 17)
+                      if (isTodayAvailable)
                         ChoiceChip(
                           label: Text('Today (${now.day}/${now.month})'),
                           selected: isToday,
@@ -621,8 +762,8 @@ class _TimingTabState extends State<TimingTab> {
                             if (sel) {
                               setModalState(() {
                                 selectedDate = now;
-                                if (now.hour >= 9) {
-                                  selectedSlot = 'Evening (5:00 PM - 8:00 PM)';
+                                if (isMorningPassedToday) {
+                                  selectedSlot = eveningSlotLabel;
                                 }
                               });
                             }
@@ -671,7 +812,7 @@ class _TimingTabState extends State<TimingTab> {
                             context: modalCtx,
                             initialDate: selectedDate,
                             firstDate: now,
-                            lastDate: now.add(const Duration(days: 60)),
+                            lastDate: now.add(Duration(days: maxAdvanceDays)),
                             builder: (context, child) => Theme(
                               data: Theme.of(context).copyWith(
                                 colorScheme: const ColorScheme.light(primary: _green),
@@ -694,42 +835,47 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (!(isToday && now.hour >= 9))
+                      if (canSelectMorning)
                         Expanded(
                           child: ChoiceChip(
-                            label: const Center(
-                              child: Text('🌅 Morning\n5:00 AM - 9:30 AM',
-                                  textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+                            label: Center(
+                              child: Text('🌅 Morning\n$morningStart - $morningEnd',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
                             selected: selectedSlot.contains('Morning'),
                             selectedColor: _green.withValues(alpha: 0.18),
+                            checkmarkColor: _green,
                             labelStyle: TextStyle(
                               color: selectedSlot.contains('Morning') ? _green : Colors.black87,
-                              fontWeight: selectedSlot.contains('Morning') ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: FontWeight.bold,
                             ),
                             onSelected: (sel) {
-                              if (sel) setModalState(() => selectedSlot = 'Morning (5:00 AM - 9:30 AM)');
+                              if (sel) setModalState(() => selectedSlot = morningSlotLabel);
                             },
                           ),
                         ),
-                      if (!(isToday && now.hour >= 9)) const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Center(
-                            child: Text('🌇 Evening\n5:00 PM - 8:00 PM',
-                                textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+                      if (canSelectMorning && canSelectEvening) const SizedBox(width: 8),
+                      if (canSelectEvening)
+                        Expanded(
+                          child: ChoiceChip(
+                            label: Center(
+                              child: Text('🌇 Evening\n$eveningStart - $eveningEnd',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                            selected: selectedSlot.contains('Evening'),
+                            selectedColor: _green.withValues(alpha: 0.18),
+                            checkmarkColor: _green,
+                            labelStyle: TextStyle(
+                              color: selectedSlot.contains('Evening') ? _green : Colors.black87,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            onSelected: (sel) {
+                              if (sel) setModalState(() => selectedSlot = eveningSlotLabel);
+                            },
                           ),
-                          selected: selectedSlot.contains('Evening'),
-                          selectedColor: _green.withValues(alpha: 0.18),
-                          labelStyle: TextStyle(
-                            color: selectedSlot.contains('Evening') ? _green : Colors.black87,
-                            fontWeight: selectedSlot.contains('Evening') ? FontWeight.bold : FontWeight.normal,
-                          ),
-                          onSelected: (sel) {
-                            if (sel) setModalState(() => selectedSlot = 'Evening (5:00 PM - 8:00 PM)');
-                          },
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -865,7 +1011,7 @@ class _TimingTabState extends State<TimingTab> {
                           children: [
                             const Text('Selected Slot:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
-                              selectedSlot.replaceAll('🌅 ', '').replaceAll('🌇 ', ''),
+                              selectedSlot,
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
                             ),
                           ],
@@ -999,7 +1145,7 @@ class _TimingTabState extends State<TimingTab> {
     final deliveryDays =
         _subscription?['delivery_days'] ?? 'Monday-Sunday';
 
-    final String displaySlot = slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', '');
+    final String displaySlot = _formatSlotOnly(slot.toString());
     final nextDate = DateTime.now().add(const Duration(days: 1));
     final nextDateStr = 'Tomorrow (${nextDate.day}/${nextDate.month}/${nextDate.year})';
 
@@ -1089,7 +1235,9 @@ class _TimingTabState extends State<TimingTab> {
                 _infoRow(Icons.location_on_outlined, 'Delivery Area',
                     widget.customer['area'] ?? widget.customer['location'] ?? 'Anna Nagar'),
                 _infoRow(Icons.info_outline, 'Cutoff to Cancel',
-                    'Before 8:00 PM (previous night)'),
+                    displaySlot.toLowerCase().contains('evening')
+                        ? 'Before ${_orderTimings?['evening_pause_cutoff'] ?? '2:00 PM'} (same day)'
+                        : 'Before ${_orderTimings?['morning_pause_cutoff'] ?? '8:00 PM'} (previous night)'),
               ],
             ),
           ),
@@ -1117,7 +1265,7 @@ class _TimingTabState extends State<TimingTab> {
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: _openAdditionalOrderBottomSheet,
+              onTap: _checkServiceabilityAndOpenAdditionalOrder,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 child: Row(

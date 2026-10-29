@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'session_service.dart';
 
@@ -624,14 +625,17 @@ class SupabaseAPI {
 
   static Future<String> processPayment(
       dynamic customerOrId, String name, String mobile, double amount,
-      {String? billingPeriod}) async {
+      {String? billingPeriod, String? upiId, String? transactionRef}) async {
     final ids = await resolveCustomerIds(customerOrId);
     final targetId = ids.isNotEmpty ? ids.first : customerOrId.toString();
 
-    final upiRef = 'UPI-${DateTime.now().millisecondsSinceEpoch}';
+    final upiRef = transactionRef != null && transactionRef.trim().isNotEmpty
+        ? transactionRef.trim()
+        : 'UPI-${DateTime.now().millisecondsSinceEpoch}';
     final invNum = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
     final todayStr = DateTime.now().toIso8601String().substring(0, 10);
     final periodDesc = billingPeriod ?? 'Weekly Post-Delivery Settlement';
+    final storedUpi = upiId != null && upiId.trim().isNotEmpty ? upiId.trim() : null;
 
     // 1. Try updating an existing PENDING invoice for this period first
     bool updatedExisting = false;
@@ -654,6 +658,9 @@ class SupabaseAPI {
           'total_milk_amount': amount,
           'pending_amount': 0.00,
           'reference_number': upiRef,
+          if (storedUpi != null) ...{
+            'transaction_ref': storedUpi,
+          },
           'payment_date': todayStr,
         }).eq('id', pendingId);
         updatedExisting = true;
@@ -677,6 +684,9 @@ class SupabaseAPI {
         'payment_status': 'PAID', // Enum: PAID, PARTIAL, PENDING, OVERDUE
         'status': 'PAID',
         'reference_number': upiRef,
+        if (storedUpi != null) ...{
+          'transaction_ref': storedUpi,
+        },
       });
     }
 
@@ -1215,6 +1225,91 @@ class SupabaseAPI {
     return null;
   }
 
+  // ─── ORDER & DELIVERY TIMINGS CONFIG (Admin Panel Configured) ─────────────
+
+  static Future<Map<String, dynamic>> fetchOrderTimingsConfig() async {
+    try {
+      // 1. Try enterprise_settings row 'primary_timing_config'
+      final res = await _db
+          .from('enterprise_settings')
+          .select('*')
+          .eq('id', 'primary_timing_config')
+          .maybeSingle();
+
+      if (res != null && res['app_release_notes'] != null) {
+        try {
+          final parsed = jsonDecode(res['app_release_notes'].toString());
+          if (parsed is Map) {
+            return Map<String, dynamic>.from(parsed);
+          }
+        } catch (_) {}
+      }
+
+      // 2. Try primary_enterprise_config
+      final entRes = await _db
+          .from('enterprise_settings')
+          .select('*')
+          .eq('id', 'primary_enterprise_config')
+          .maybeSingle();
+
+      if (entRes != null) {
+        return {
+          'morning_cutoff_time': entRes['morning_cutoff_time'] ?? '07:00 AM',
+          'morning_pause_cutoff': entRes['morning_pause_cutoff'] ?? '08:00 PM',
+          'evening_cutoff_time': entRes['evening_cutoff_time'] ?? '04:30 PM',
+          'evening_pause_cutoff': entRes['evening_pause_cutoff'] ?? '02:00 PM',
+          'morning_slot_start': '05:00 AM',
+          'morning_slot_end': '08:00 AM',
+          'evening_slot_start': '04:00 PM',
+          'evening_slot_end': '07:00 PM',
+          'morning_slot_label': entRes['default_shift'] ?? 'Morning (05:00 AM - 08:00 AM)',
+          'evening_slot_label': 'Evening (04:00 PM - 07:00 PM)',
+          'morning_slot_enabled': true,
+          'evening_slot_enabled': true,
+          'allow_pause_until': entRes['allow_pause_until'] ?? '08:00 PM',
+          'allow_same_day_orders': true,
+          'max_advance_days': 30,
+        };
+      }
+    } catch (e) {
+      print('fetchOrderTimingsConfig error: $e');
+    }
+
+    // Default fallback
+    return {
+      'morning_cutoff_time': '07:00 AM',
+      'morning_pause_cutoff': '08:00 PM',
+      'evening_cutoff_time': '04:30 PM',
+      'evening_pause_cutoff': '02:00 PM',
+      'morning_slot_start': '05:00 AM',
+      'morning_slot_end': '08:00 AM',
+      'evening_slot_start': '04:00 PM',
+      'evening_slot_end': '07:00 PM',
+      'morning_slot_label': 'Morning (05:00 AM - 08:00 AM)',
+      'evening_slot_label': 'Evening (04:00 PM - 07:00 PM)',
+      'morning_slot_enabled': true,
+      'evening_slot_enabled': true,
+      'allow_pause_until': '08:00 PM',
+      'allow_same_day_orders': true,
+      'max_advance_days': 30,
+    };
+  }
+
+  /// Parses string like "09:00 AM", "5:00 PM", "17:00", "09:30:00" to minutes from midnight
+  static int parseTimeToMinutes(String? timeStr, {int defaultMinutes = 540}) {
+    if (timeStr == null || timeStr.trim().isEmpty) return defaultMinutes;
+    final match = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$', caseSensitive: false)
+        .firstMatch(timeStr.trim());
+    if (match == null) return defaultMinutes;
+    int h = int.tryParse(match.group(1) ?? '') ?? 0;
+    final m = int.tryParse(match.group(2) ?? '') ?? 0;
+    final mod = match.group(3)?.toUpperCase();
+
+    if (mod == 'PM' && h < 12) h += 12;
+    if (mod == 'AM' && h == 12) h = 0;
+    return h * 60 + m;
+  }
+
   // ─── 10. APP UPDATE & VERSION MANAGEMENT ──────────────────────────────────
 
   static const String currentAppVersion = '1.0.1';
@@ -1715,6 +1810,25 @@ class SupabaseAPI {
       }
     } catch (_) {}
 
+    // Verify Customer Pincode Serviceability
+    final pincode = (c['pincode'] ?? '').toString().trim();
+    if (pincode.isNotEmpty) {
+      final serviceable = await isPincodeServiceable(pincode);
+      if (!serviceable) {
+        // Log unmet demand to Admin Panel
+        await recordUnserviceableLocationRequest(
+          pincode: pincode,
+          areaName: (c['area'] ?? c['location'])?.toString(),
+          city: c['city']?.toString(),
+          customerName: c['name']?.toString(),
+          customerMobile: (c['mobile'] ?? c['phone'])?.toString(),
+          fullAddress: c['address']?.toString(),
+          notes: 'Customer attempted additional order from unserviced pincode',
+        );
+        throw Exception(unserviceableLocationMessage);
+      }
+    }
+
     final y = deliveryDate.year.toString().padLeft(4, '0');
     final m = deliveryDate.month.toString().padLeft(2, '0');
     final d = deliveryDate.day.toString().padLeft(2, '0');
@@ -1789,6 +1903,180 @@ class SupabaseAPI {
       'delivery_status': 'CANCELLED',
       'order_status': 'CANCELLED',
     }).eq('id', orderId);
+  }
+
+  // ─── 14. PINCODE & SERVICEABLE LOCATIONS ────────────────────────────────────
+
+  static const String unserviceableLocationMessage =
+      "We are not available at your location yet, but we will quickly reach to your location";
+
+  static List<String>? _cachedServiceablePincodes;
+  static DateTime? _pincodesCacheTime;
+
+  /// Default fallback list of active pincodes (Chennai & Salem)
+  static const List<String> defaultServiceablePincodes = [
+    '600040', // Anna Nagar
+    '600017', // T. Nagar
+    '600020', // Adyar
+    '600042', // Velachery
+    '600010', // Kilpauk
+    '600004', // Mylapore
+    '600116', // Porur
+    '600096', // OMR Perungudi
+    '636004', // Meyyanur / Salem Central
+    '636007', // Fairlands Salem
+  ];
+
+  /// Fetch active serviceable pincodes from Supabase
+  static Future<List<String>> fetchServiceablePincodes({bool forceRefresh = false}) async {
+    final now = DateTime.now();
+    if (!forceRefresh &&
+        _cachedServiceablePincodes != null &&
+        _pincodesCacheTime != null &&
+        now.difference(_pincodesCacheTime!).inMinutes < 10) {
+      return _cachedServiceablePincodes!;
+    }
+
+    try {
+      // 1. Try public.serviceable_pincodes table
+      final res = await _db
+          .from('serviceable_pincodes')
+          .select('pincode')
+          .eq('is_active', true);
+
+      if (res.isNotEmpty) {
+        final list = res
+            .map((e) => (e['pincode'] ?? '').toString().trim())
+            .where((p) => p.isNotEmpty)
+            .toList();
+        if (list.isNotEmpty) {
+          _cachedServiceablePincodes = list;
+          _pincodesCacheTime = now;
+          return list;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      // 2. Fallback to enterprise_settings row
+      final entRes = await _db
+          .from('enterprise_settings')
+          .select('app_release_notes')
+          .eq('id', 'primary_serviceable_pincodes')
+          .single();
+
+      if (entRes['app_release_notes'] != null) {
+        final parsed = jsonDecode(entRes['app_release_notes'].toString());
+        if (parsed is List) {
+          final list = parsed
+              .where((item) => item is Map && item['is_active'] != false)
+              .map((item) => (item['pincode'] ?? '').toString().trim())
+              .where((p) => p.isNotEmpty)
+              .toList();
+          if (list.isNotEmpty) {
+            _cachedServiceablePincodes = list;
+            _pincodesCacheTime = now;
+            return list;
+          }
+        }
+      }
+    } catch (_) {}
+
+    _cachedServiceablePincodes = defaultServiceablePincodes;
+    _pincodesCacheTime = now;
+    return defaultServiceablePincodes;
+  }
+
+  /// Check whether a pincode is serviceable
+  static Future<bool> isPincodeServiceable(String? pincode) async {
+    if (pincode == null) return false;
+    final clean = pincode.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (clean.isEmpty) return false;
+
+    final serviceableList = await fetchServiceablePincodes();
+    return serviceableList.contains(clean);
+  }
+
+  /// Record an unserviceable customer location request for admin review
+  static Future<void> recordUnserviceableLocationRequest({
+    required String pincode,
+    String? areaName,
+    String? city,
+    String? customerName,
+    String? customerMobile,
+    String? fullAddress,
+    double? latitude,
+    double? longitude,
+    String? notes,
+  }) async {
+    final cleanPin = pincode.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (cleanPin.isEmpty) return;
+
+    final reqId = 'req-${DateTime.now().millisecondsSinceEpoch}';
+    final nowIso = DateTime.now().toIso8601String();
+
+    final payload = {
+      'id': reqId,
+      'pincode': cleanPin,
+      'area_name': (areaName != null && areaName.trim().isNotEmpty) ? areaName.trim() : 'Unspecified',
+      'city': (city != null && city.trim().isNotEmpty) ? city.trim() : 'Chennai',
+      'state': 'Tamil Nadu',
+      'customer_name': customerName?.trim() ?? 'Customer Lead',
+      'customer_mobile': customerMobile?.trim() ?? '',
+      'full_address': fullAddress?.trim() ?? '',
+      'latitude': latitude,
+      'longitude': longitude,
+      'request_count': 1,
+      'status': 'PENDING',
+      'notes': notes ?? 'Customer entered unserviceable location on Mobile App',
+      'created_at': nowIso,
+      'updated_at': nowIso,
+    };
+
+    // 1. Try writing to pincode_delivery_requests table
+    try {
+      await _db.from('pincode_delivery_requests').insert(payload);
+      return;
+    } catch (_) {}
+
+    // 2. Fallback to enterprise_settings row
+    try {
+      final ent = await _db
+          .from('enterprise_settings')
+          .select('app_release_notes')
+          .eq('id', 'primary_pincode_requests')
+          .single();
+
+      List<dynamic> list = [];
+      if (ent['app_release_notes'] != null) {
+        try {
+          final p = jsonDecode(ent['app_release_notes'].toString());
+          if (p is List) list = p;
+        } catch (_) {}
+      }
+
+      final existingIdx = list.indexWhere((r) =>
+          r is Map &&
+          r['pincode'] == cleanPin &&
+          (customerMobile != null && r['customer_mobile'] == customerMobile));
+
+      if (existingIdx >= 0) {
+        list[existingIdx]['request_count'] = ((list[existingIdx]['request_count'] ?? 1) as int) + 1;
+        list[existingIdx]['updated_at'] = nowIso;
+        if (fullAddress != null && fullAddress.isNotEmpty) {
+          list[existingIdx]['full_address'] = fullAddress;
+        }
+      } else {
+        list.insert(0, payload);
+      }
+
+      await _db.from('enterprise_settings').upsert({
+        'id': 'primary_pincode_requests',
+        'company_name': 'Customer Pincode Delivery Requests',
+        'app_release_notes': jsonEncode(list),
+        'updated_at': nowIso,
+      });
+    } catch (_) {}
   }
 }
 

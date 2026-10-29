@@ -22,6 +22,8 @@ class _CancelTabState extends State<CancelTab> {
   DateTimeRange? _bulkDateRange;
   List<DateTime> _selectedBulkDates = [];
   String _selectedTime = 'Morning';
+  String _morningPauseCutoff = '8:00 PM';
+  String _eveningPauseCutoff = '2:00 PM';
   final _reasonCtrl = TextEditingController();
 
   final _times = ['Morning', 'Evening', 'Entire Day'];
@@ -120,12 +122,18 @@ class _CancelTabState extends State<CancelTab> {
       autoSelectedSlot = 'Morning';
     }
 
+    final timings = await SupabaseAPI.fetchOrderTimingsConfig();
+    final mPause = (timings['morning_pause_cutoff'] ?? '8:00 PM').toString();
+    final ePause = (timings['evening_pause_cutoff'] ?? '2:00 PM').toString();
+
     if (mounted) {
       setState(() {
         _cancellations = list;
         _subscription = sub;
         _selectedDate = validDate;
         _selectedTime = autoSelectedSlot;
+        _morningPauseCutoff = mPause;
+        _eveningPauseCutoff = ePause;
         _loading = false;
       });
     }
@@ -251,39 +259,6 @@ class _CancelTabState extends State<CancelTab> {
 
       if (list.isEmpty) {
         _snack('No scheduled delivery days found in selected range for plan: $plan', error: true);
-      }
-    }
-  }
-
-  Future<void> _addSingleDateToBulk() async {
-    final plan = _subscription?['delivery_days'] ??
-        widget.customer['delivery_days'] ??
-        'Daily';
-
-    DateTime initial = _findFirstValidDate(plan);
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime.now().add(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
-      selectableDayPredicate: (date) => _isDeliveryDay(date, plan),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: _green),
-        ),
-        child: child!,
-      ),
-    );
-
-    if (picked != null) {
-      final dateOnly = DateTime(picked.year, picked.month, picked.day);
-      if (!_selectedBulkDates.any((d) => d.year == dateOnly.year && d.month == dateOnly.month && d.day == dateOnly.day)) {
-        setState(() {
-          _selectedBulkDates.add(dateOnly);
-          _selectedBulkDates.sort();
-        });
-      } else {
-        _snack('Date is already added to bulk selection');
       }
     }
   }
@@ -439,8 +414,10 @@ class _CancelTabState extends State<CancelTab> {
               ],
             ),
             const SizedBox(height: 4),
-            const Text('Submit before 8:00 PM for next day\'s delivery',
-                style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(
+              'Morning delivery cutoff: Before $_morningPauseCutoff (prev night) • Evening cutoff: Before $_eveningPauseCutoff',
+              style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 16),
 
             // ── Mode Switcher: Single Day vs Bulk Dates ───────────────────
@@ -580,43 +557,24 @@ class _CancelTabState extends State<CancelTab> {
                   ),
                   const SizedBox(height: 10),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.date_range, size: 16, color: _green),
-                          label: Text(
-                            _bulkDateRange != null
-                                ? '${DateFormat('dd MMM').format(_bulkDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(_bulkDateRange!.end)}'
-                                : 'Select Date Range 📅',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _green),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: _green, width: 1.2),
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: _pickDateRange,
-                        ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.date_range, size: 18, color: _green),
+                      label: Text(
+                        _bulkDateRange != null
+                            ? '${DateFormat('dd MMM').format(_bulkDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(_bulkDateRange!.end)}'
+                            : 'Select Date Range 📅',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _green),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.add, size: 16, color: Colors.grey),
-                          label: const Text('+ Add Date',
-                              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black87)),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.grey.shade400),
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: _addSingleDateToBulk,
-                        ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: _green, width: 1.2),
+                        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                    ],
+                      onPressed: _pickDateRange,
+                    ),
                   ),
                   const SizedBox(height: 12),
 

@@ -278,6 +278,27 @@ export const ProfileScreen: React.FC = () => {
     }
     const latNum = parseFloat(latitude) || 13.0827;
     const lngNum = parseFloat(longitude) || 80.2707;
+    const pin = pincode.trim();
+
+    const isServiceable = await ServerAPI.isPincodeServiceable(pin);
+    if (!isServiceable) {
+      await ServerAPI.recordUnserviceableLocationRequest({
+        pincode: pin,
+        areaName: area.trim(),
+        city: city.trim(),
+        customerName: name.trim(),
+        customerMobile: mobile.trim(),
+        fullAddress: address.trim(),
+        latitude: latNum,
+        longitude: lngNum,
+        notes: 'Customer updated delivery address with unserviceable pincode',
+      });
+      Alert.alert(
+        'Delivery Notice',
+        `“We are not available at your location yet, but we will quickly reach to your location”\n\nYour address update with Pincode ${pin} has been registered with our operations depot. We will notify you when regular routes expand to your area!`,
+        [{ text: 'OK' }]
+      );
+    }
 
     await updateLocation({
       address: address.trim(),

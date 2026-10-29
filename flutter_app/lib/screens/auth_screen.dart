@@ -196,7 +196,27 @@ class _AuthScreenState extends State<AuthScreen>
 
     setState(() => _sendingOtp = true);
     try {
-      // 2. Strict Duplicate Mobile Check on Server (BEFORE sending OTP)
+      // 2. Check Pincode Serviceability
+      final pincode = _regPincodeCtrl.text.trim();
+      final isServiceable = await SupabaseAPI.isPincodeServiceable(pincode);
+      if (!isServiceable) {
+        setState(() => _sendingOtp = false);
+        await SupabaseAPI.recordUnserviceableLocationRequest(
+          pincode: pincode.isNotEmpty ? pincode : 'Unspecified',
+          areaName: _regAreaCtrl.text.trim(),
+          city: _regCityCtrl.text.trim(),
+          customerName: name,
+          customerMobile: cleanMobile,
+          fullAddress: address,
+          latitude: double.tryParse(_latCtrl.text),
+          longitude: double.tryParse(_lngCtrl.text),
+          notes: 'Customer attempted signup from unserviceable pincode',
+        );
+        _showUnserviceableDialog(pincode.isNotEmpty ? pincode : 'Your Area');
+        return;
+      }
+
+      // 3. Strict Duplicate Mobile Check on Server (BEFORE sending OTP)
       final isDuplicate =
           await SupabaseAPI.isMobileAlreadyRegistered(cleanMobile);
       if (isDuplicate) {
@@ -351,6 +371,100 @@ class _AuthScreenState extends State<AuthScreen>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Unserviceable Location Notice Dialog
+  // ─────────────────────────────────────────────────────────────────────────
+  void _showUnserviceableDialog(String pincode) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFDE68A), width: 2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.location_off_outlined, color: Color(0xFFD97706), size: 34),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delivery Notice',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Pincode: $pincode',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF0284C7),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E293B),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                '✅ We have notified our operations team about your area. You will receive an update as soon as fresh milk delivery opens at your doorstep!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

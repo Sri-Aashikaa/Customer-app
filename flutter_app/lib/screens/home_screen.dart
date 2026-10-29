@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/session_service.dart';
-import 'auth_screen.dart';
 import 'tabs/dashboard_tab.dart';
 import 'tabs/timing_tab.dart';
 import 'tabs/cancel_tab.dart';
@@ -84,18 +82,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           )),
         ]),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, size: 20),
-            tooltip: 'Logout',
-            onPressed: () async {
-              await UserSession.clearSession();
-              if (!context.mounted) return;
-              Navigator.pushReplacement(
-                  context, MaterialPageRoute(builder: (_) => const AuthScreen()));
-            },
-          ),
-        ],
       ),
       body: IndexedStack(index: _idx, children: tabs),
       bottomNavigationBar: BottomNavigationBar(

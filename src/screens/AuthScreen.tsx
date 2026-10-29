@@ -13,6 +13,7 @@ import {
   Modal,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 import { colors, spacing, radius } from '../theme/theme';
 
 export const AuthScreen: React.FC = () => {
@@ -62,6 +63,26 @@ export const AuthScreen: React.FC = () => {
 
     if (regForm.mobile.trim().length < 10) {
       Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    // Check Pincode Serviceability
+    const pin = regForm.pincode.trim();
+    const isServiceable = await api.isPincodeServiceable(pin);
+    if (!isServiceable) {
+      await api.recordUnserviceableLocationRequest({
+        pincode: pin || 'Unspecified',
+        areaName: regForm.area,
+        city: 'Chennai',
+        customerName: regForm.name,
+        customerMobile: regForm.mobile,
+        fullAddress: regForm.address,
+      });
+      Alert.alert(
+        'Delivery Notice',
+        `“We are not available at your location yet, but we will quickly reach to your location”\n\nYour location request for Pincode ${pin} has been recorded in our operations panel. We will notify you when delivery opens in your area!`,
+        [{ text: 'Understood, Thank You!' }]
+      );
       return;
     }
 

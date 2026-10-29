@@ -1069,6 +1069,199 @@ export const ServerAPI = {
     } catch (_) {
       return [];
     }
+  },
+
+  fetchOrderTimingsConfig: async (): Promise<any> => {
+    try {
+      const { data } = await supabase
+        .from('enterprise_settings')
+        .select('*')
+        .eq('id', 'primary_timing_config')
+        .maybeSingle();
+
+      if (data && data.app_release_notes) {
+        try {
+          const parsed = JSON.parse(data.app_release_notes);
+          return parsed;
+        } catch (_) {}
+      }
+
+      const { data: ent } = await supabase
+        .from('enterprise_settings')
+        .select('*')
+        .eq('id', 'primary_enterprise_config')
+        .maybeSingle();
+
+      return {
+        morning_cutoff_time: ent?.morning_cutoff_time || '09:00 AM',
+        evening_cutoff_time: ent?.evening_cutoff_time || '05:00 PM',
+        morning_slot_start: '05:00 AM',
+        morning_slot_end: '09:30 AM',
+        evening_slot_start: '05:00 PM',
+        evening_slot_end: '08:00 PM',
+        morning_slot_label: ent?.default_shift || 'Morning (5:00 AM - 9:30 AM)',
+        evening_slot_label: 'Evening (5:00 PM - 8:00 PM)',
+        morning_slot_enabled: true,
+        evening_slot_enabled: true,
+        allow_pause_until: ent?.allow_pause_until || '09:00 PM',
+        auto_allocate_time: ent?.auto_allocate_time || '04:00 AM',
+        allow_same_day_orders: true,
+        max_advance_days: 30
+      };
+    } catch (_) {
+      return {
+        morning_cutoff_time: '09:00 AM',
+        evening_cutoff_time: '05:00 PM',
+        morning_slot_start: '05:00 AM',
+        morning_slot_end: '09:30 AM',
+        evening_slot_start: '05:00 PM',
+        evening_slot_end: '08:00 PM',
+        morning_slot_label: 'Morning (5:00 AM - 9:30 AM)',
+        evening_slot_label: 'Evening (5:00 PM - 8:00 PM)',
+        morning_slot_enabled: true,
+        evening_slot_enabled: true,
+        allow_pause_until: '09:00 PM',
+        auto_allocate_time: '04:00 AM',
+        allow_same_day_orders: true,
+        max_advance_days: 30
+      };
+    }
+  },
+
+  unserviceableLocationMessage: 'We are not available at your location yet, but we will quickly reach to your location',
+
+  defaultServiceablePincodes: [
+    '600040', '600017', '600020', '600042', '600010', '600004', '600116', '600096', '636004', '636007'
+  ],
+
+  /**
+   * Fetch active serviceable pincodes list
+   */
+  async fetchServiceablePincodes(): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('serviceable_pincodes')
+        .select('pincode')
+        .eq('is_active', true);
+
+      if (!error && data && data.length > 0) {
+        return data.map((d: any) => String(d.pincode || '').trim()).filter(Boolean);
+      }
+    } catch (_) {}
+
+    try {
+      const { data: ent } = await supabase
+        .from('enterprise_settings')
+        .select('app_release_notes')
+        .eq('id', 'primary_serviceable_pincodes')
+        .single();
+
+      if (ent?.app_release_notes) {
+        const parsed = JSON.parse(ent.app_release_notes);
+        if (Array.isArray(parsed)) {
+          const list = parsed
+            .filter((p: any) => p.is_active !== false)
+            .map((p: any) => String(p.pincode || '').trim())
+            .filter(Boolean);
+          if (list.length > 0) return list;
+        }
+      }
+    } catch (_) {}
+
+    return this.defaultServiceablePincodes;
+  },
+
+  /**
+   * Check if a pincode is currently serviceable
+   */
+  async isPincodeServiceable(pincode?: string): Promise<boolean> {
+    if (!pincode) return false;
+    const clean = String(pincode).replace(/\D/g, '').trim();
+    if (!clean) return false;
+    const list = await this.fetchServiceablePincodes();
+    return list.includes(clean);
+  },
+
+  /**
+   * Record unserviceable customer location request for Admin Panel
+   */
+  async recordUnserviceableLocationRequest(payload: {
+    pincode: string;
+    areaName?: string;
+    city?: string;
+    customerName?: string;
+    customerMobile?: string;
+    fullAddress?: string;
+    latitude?: number;
+    longitude?: number;
+    notes?: string;
+  }): Promise<void> {
+    const cleanPin = String(payload.pincode || '').replace(/\D/g, '').trim();
+    if (!cleanPin) return;
+
+    const reqId = `req-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const data = {
+      id: reqId,
+      pincode: cleanPin,
+      area_name: payload.areaName || 'Unspecified',
+      city: payload.city || 'Chennai',
+      state: 'Tamil Nadu',
+      customer_name: payload.customerName || 'Customer Lead',
+      customer_mobile: payload.customerMobile || '',
+      full_address: payload.fullAddress || '',
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      request_count: 1,
+      status: 'PENDING',
+      notes: payload.notes || 'Customer attempted registration/order from unserviceable pincode',
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    try {
+      await supabase.from('pincode_delivery_requests').insert(data);
+      return;
+    } catch (_) {}
+
+    try {
+      const { data: ent } = await supabase
+        .from('enterprise_settings')
+        .select('app_release_notes')
+        .eq('id', 'primary_pincode_requests')
+        .single();
+
+      let list: any[] = [];
+      if (ent?.app_release_notes) {
+        try {
+          const parsed = JSON.parse(ent.app_release_notes);
+          if (Array.isArray(parsed)) list = parsed;
+        } catch (_) {}
+      }
+
+      const existingIdx = list.findIndex(
+        (r) =>
+          r.pincode === cleanPin &&
+          (payload.customerMobile ? r.customer_mobile === payload.customerMobile : true)
+      );
+
+      if (existingIdx >= 0) {
+        list[existingIdx].request_count = (list[existingIdx].request_count || 1) + 1;
+        list[existingIdx].updated_at = nowIso;
+      } else {
+        list.unshift(data);
+      }
+
+      await supabase.from('enterprise_settings').upsert({
+        id: 'primary_pincode_requests',
+        company_name: 'Customer Pincode Delivery Requests',
+        app_release_notes: JSON.stringify(list),
+        updated_at: nowIso,
+      });
+    } catch (_) {}
   }
 };
+
+export const api = ServerAPI;
+
 

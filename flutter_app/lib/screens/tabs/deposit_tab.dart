@@ -118,27 +118,18 @@ class _DepositTabState extends State<DepositTab> {
     required int count05L,
     required int countIceBox,
   }) {
-    final supportPhone = (_enterprise?['support_phone'] ??
-            _enterprise?['secondary_phone'] ??
-            '+91 98765 43210')
-        .toString();
     final custName = widget.customer['name'] ?? 'Customer';
-    final custId =
-        widget.customer['customer_id'] ?? widget.customer['id'] ?? '';
-    final custMobile =
-        (widget.customer['mobile'] ?? widget.customer['phone'] ?? '').toString();
 
     String refundType = 'FULL'; // 'FULL' or 'PARTIAL'
-    String payoutMethod = 'UPI'; // 'UPI' or 'BANK'
+    const String payoutMethod = 'BANK'; // Direct Bank Account Transfer only
 
     int return1L = count1L;
     int return05L = count05L;
     int returnIceBox = countIceBox;
 
-    final upiCtrl = TextEditingController(
-        text: custMobile.isNotEmpty ? '$custMobile@upi' : '');
     final accountHolderCtrl = TextEditingController(text: custName);
     final accountNumberCtrl = TextEditingController();
+    final confirmAccountNumberCtrl = TextEditingController();
     final ifscCtrl = TextEditingController();
     final bankNameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
@@ -449,140 +440,119 @@ class _DepositTabState extends State<DepositTab> {
                     const SizedBox(height: 14),
                   ],
 
-                  // Payout Method Selector
-                  const Text('Refund Payout Method',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ChoiceChip(
-                          avatar: Icon(Icons.qr_code,
-                              size: 16,
-                              color: payoutMethod == 'UPI'
-                                  ? Colors.white
-                                  : _green),
-                          label: const Text('UPI Transfer (Instant)'),
-                          selected: payoutMethod == 'UPI',
-                          selectedColor: _green,
-                          labelStyle: TextStyle(
-                            color: payoutMethod == 'UPI'
-                                ? Colors.white
-                                : Colors.black87,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                          onSelected: (val) {
-                            if (val) {
-                              setModalState(() => payoutMethod = 'UPI');
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          avatar: Icon(Icons.account_balance,
-                              size: 16,
-                              color: payoutMethod == 'BANK'
-                                  ? Colors.white
-                                  : _green),
-                          label: const Text('Bank Transfer (NEFT)'),
-                          selected: payoutMethod == 'BANK',
-                          selectedColor: _green,
-                          labelStyle: TextStyle(
-                            color: payoutMethod == 'BANK'
-                                ? Colors.white
-                                : Colors.black87,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                          onSelected: (val) {
-                            if (val) {
-                              setModalState(() => payoutMethod = 'BANK');
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Payout Details Fields
-                  if (payoutMethod == 'UPI')
-                    TextField(
-                      controller: upiCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Your UPI ID (GPay / PhonePe / Paytm / BHIM)',
-                        hintText: 'e.g. mobile@upi or name@okaxis',
-                        prefixIcon: const Icon(Icons.payment,
-                            color: _green, size: 20),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 12),
-                      ),
-                    )
-                  else ...[
-                    TextField(
-                      controller: accountHolderCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Bank Account Holder Name',
-                        prefixIcon: const Icon(Icons.person_outline,
-                            color: _green, size: 20),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
+                  // Bank Account Refund Details
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: accountNumberCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'Account Number',
-                        prefixIcon: const Icon(Icons.numbers,
-                            color: _green, size: 20),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: ifscCtrl,
-                            textCapitalization: TextCapitalization.characters,
-                            decoration: InputDecoration(
-                              labelText: 'IFSC Code',
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
+                        const Row(
+                          children: [
+                            Icon(Icons.account_balance, size: 16, color: _green),
+                            SizedBox(width: 6),
+                            Text(
+                              'Refund Payout Bank Account',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF0F172A)),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Direct bank deposit upon bottle inspection & collection',
+                          style: TextStyle(fontSize: 10, color: Colors.grey),
+                        ),
+                        const SizedBox(height: 10),
+
+                        TextField(
+                          controller: accountNumberCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Bank Account Number *',
+                            hintText: 'Enter bank account number',
+                            prefixIcon: const Icon(Icons.numbers,
+                                color: _green, size: 20),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 11),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: bankNameCtrl,
-                            decoration: InputDecoration(
-                              labelText: 'Bank Name',
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
+                        const SizedBox(height: 8),
+
+                        TextField(
+                          controller: confirmAccountNumberCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Re-Enter Bank Account Number *',
+                            hintText: 'Re-enter to confirm',
+                            prefixIcon: const Icon(Icons.check_circle_outline,
+                                color: _green, size: 20),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 11),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: ifscCtrl,
+                                textCapitalization: TextCapitalization.characters,
+                                decoration: InputDecoration(
+                                  labelText: 'IFSC Code *',
+                                  hintText: 'e.g. SBIN0001234',
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 11),
+                                ),
+                              ),
                             ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: bankNameCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Bank Name',
+                                  hintText: 'e.g. SBI, HDFC',
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 11),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        TextField(
+                          controller: accountHolderCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Account Holder Name',
+                            hintText: 'Name as per bank records',
+                            prefixIcon: const Icon(Icons.person_outline,
+                                color: _green, size: 20),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 11),
                           ),
                         ),
                       ],
                     ),
-                  ],
+                  ),
                   const SizedBox(height: 14),
 
                   // Handover Date Selector
@@ -751,29 +721,35 @@ class _DepositTabState extends State<DepositTab> {
                               );
                               return;
                             }
-                            final payoutStr = payoutMethod == 'UPI'
-                                ? upiCtrl.text.trim()
-                                : '${bankNameCtrl.text.trim()} - A/C: ${accountNumberCtrl.text.trim()} IFSC: ${ifscCtrl.text.trim()}';
+                            final accNo = accountNumberCtrl.text.trim();
+                            final confirmAccNo = confirmAccountNumberCtrl.text.trim();
+                            final ifsc = ifscCtrl.text.trim().toUpperCase();
+                            final holder = accountHolderCtrl.text.trim();
+                            final bank = bankNameCtrl.text.trim();
 
-                            if (payoutMethod == 'UPI' &&
-                                upiCtrl.text.trim().isEmpty) {
+                            if (accNo.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content:
-                                        Text('Please enter your UPI ID.')),
+                                    content: Text('Please enter your Bank Account Number.')),
                               );
                               return;
                             }
-                            if (payoutMethod == 'BANK' &&
-                                (accountNumberCtrl.text.trim().isEmpty ||
-                                    ifscCtrl.text.trim().isEmpty)) {
+                            if (confirmAccNo != accNo) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content: Text(
-                                        'Please enter your Bank Account Number & IFSC.')),
+                                    content: Text('Account numbers do not match. Please verify.')),
                               );
                               return;
                             }
+                            if (ifsc.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Please enter your Bank IFSC Code.')),
+                              );
+                              return;
+                            }
+
+                            final payoutStr = '${bank.isNotEmpty ? "$bank - " : ""}A/C: $accNo IFSC: $ifsc${holder.isNotEmpty ? " - $holder" : ""}';
 
                             setModalState(() => submitting = true);
                             try {
@@ -829,32 +805,6 @@ class _DepositTabState extends State<DepositTab> {
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 14),
                           ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // WhatsApp Fallback Option
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF25D366),
-                      side: const BorderSide(color: Color(0xFF25D366)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    icon: const Icon(Icons.chat, size: 18),
-                    label: const Text(
-                      'Request via WhatsApp Support Desk',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: () {
-                      Navigator.pop(modalCtx);
-                      final payoutStr = payoutMethod == 'UPI'
-                          ? upiCtrl.text.trim()
-                          : 'A/C: ${accountNumberCtrl.text.trim()} IFSC: ${ifscCtrl.text.trim()}';
-                      final message =
-                          'Hello Amudham Dairy Support,\n\nI want to raise a Security Deposit Refund request:\n• Customer: $custName (ID: $custId)\n• Refund Amount: ₹${calculatedRefund.toInt()}\n• Type: $refundType Refund\n• Payout Mode: $payoutMethod ($payoutStr)\n• Asset Handover Date: ${DateFormat('dd MMM yyyy').format(handoverDate)}\n• Reason: $selectedReason\n\nPlease confirm asset collection and process my refund. Thank you!';
-                      _openWhatsApp(supportPhone, message);
-                    },
                   ),
                 ],
               ),
