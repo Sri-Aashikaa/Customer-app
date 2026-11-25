@@ -1,8 +1,24 @@
 import { supabase } from './supabase';
+import { SecurityUtils } from './security';
+
+const isUuidString = (val?: string | null): boolean =>
+  Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
+
+const buildCustomerLookupOr = (cleanDigits: string, safeId: string): string => {
+  const filters: string[] = [];
+  if (cleanDigits.length >= 10) {
+    filters.push(`mobile.eq.${cleanDigits}`, `phone.eq.${cleanDigits}`);
+  }
+  if (safeId) {
+    filters.push(`customer_id.eq.${safeId}`);
+    if (isUuidString(safeId)) filters.push(`id.eq.${safeId}`);
+  }
+  return filters.join(',') || 'customer_id.eq.__none__';
+};
 import {
   CustomerProfile, PaymentItem, CancellationItem, DeliveryItem, PartnerInfo,
   RegisterPayload, LocationUpdatePayload, CustomerReferralSettings, CustomerReferralRecord,
-  SubmitCustomerReferralPayload
+  SubmitCustomerReferralPayload, ComplaintItem
 } from '../types';
 
 export const DEFAULT_CUSTOMER_REFERRAL_SETTINGS: CustomerReferralSettings = {
@@ -15,7 +31,7 @@ export const DEFAULT_CUSTOMER_REFERRAL_SETTINGS: CustomerReferralSettings = {
   customer_offer_title: 'Refer a Neighbor & Earn ₹100',
   customer_offer_tagline: 'Give ₹50 off, get ₹100 Milk Wallet credit on their first subscription!',
   customer_offer_terms: 'Reward credited automatically after your friend completes their first 7 days of daily raw milk delivery.',
-  customer_share_message: '🥛 Try pure farm fresh raw cow milk from Amutham! Use my referral code {code} to get ₹{discount} OFF on your first subscription. Order now: {link}',
+  customer_share_message: '🥛 Try pure farm fresh raw cow milk from Sri Aashikaa! Use my referral code {code} to get ₹{discount} OFF on your first subscription. Order now: {link}',
   app_download_url: 'https://amudhammilk.com/downloads/amudham-customer-app.apk',
 };
 
@@ -79,16 +95,26 @@ export const ServerAPI = {
    */
   async loginCustomer(loginId: string, passwordInput: string): Promise<{ success: boolean; data?: CustomerProfile; message?: string }> {
     try {
-      const cleanId = loginId.trim();
-      const cleanDigits = cleanId.replaceAll(/[^0-9]/g, '');
-      const last10Digits = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+      const cleanDigits = SecurityUtils.sanitizeMobileDigits(loginId);
+      const safeId = SecurityUtils.sanitizePostgrestParam(loginId);
 
-      let query = supabase.from('customers').select('*');
-      if (last10Digits.length >= 6) {
-        query = query.or(`mobile.ilike.%${last10Digits}%,customer_id.eq.${cleanId},id.eq.${cleanId}`);
-      } else {
-        query = query.or(`customer_id.eq.${cleanId},id.eq.${cleanId}`);
+      if (cleanDigits.length < 10 && !safeId) {
+        return { success: false, message: 'Please enter a valid 10-digit Mobile Number or Customer ID.' };
       }
+
+      // 0. Check Login Rate Limit / Brute-force Lockout
+      const lockout = SecurityUtils.rateLimiter.checkLockout(cleanDigits || safeId);
+      if (lockout.isLocked) {
+        return {
+          success: false,
+          message: `Too many failed login attempts. Account temporarily locked for security. Please try again in ${lockout.remainingSeconds} seconds.`
+        };
+      }
+
+      const query = supabase
+        .from('customers')
+        .select('*')
+        .or(buildCustomerLookupOr(cleanDigits, safeId));
 
       const { data, error } = await query;
 
@@ -97,7 +123,7 @@ export const ServerAPI = {
       }
 
       if (!data || data.length === 0) {
-        return { success: false, message: `No customer account found with ID or Mobile Number "${cleanId}".` };
+        return { success: false, message: `No customer account found with ID or Mobile Number "${loginId}".` };
       }
 
       const user = data[0];
@@ -106,9 +132,22 @@ export const ServerAPI = {
         return { success: false, message: 'This account has been deleted or deactivated. You cannot log in.' };
       }
 
-      // Strict Password Verification
-      if (user.password && user.password !== passwordInput) {
+      // Cryptographic Password Verification
+      const isPasswordValid = SecurityUtils.verifyPassword(passwordInput, user.password);
+      if (!isPasswordValid) {
+        SecurityUtils.rateLimiter.recordFailedAttempt(cleanDigits || safeId);
         return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
+      }
+
+      // Password verified successfully: clear failure counts
+      SecurityUtils.rateLimiter.recordSuccessfulLogin(cleanDigits || safeId);
+
+      // Upgrade legacy plaintext password to salted SHA-256 hash automatically
+      if (SecurityUtils.isLegacyPlaintext(user.password)) {
+        try {
+          const secureHash = SecurityUtils.hashPassword(passwordInput);
+          await supabase.from('customers').update({ password: secureHash }).eq('id', user.id);
+        } catch (_) {}
       }
 
       const qty = Number(user.milk_quantity) || 1.5;
@@ -117,7 +156,7 @@ export const ServerAPI = {
         id: user.id,
         customer_id: user.customer_id || user.id,
         name: user.name || 'Valued Customer',
-        mobile: user.mobile || cleanId,
+        mobile: user.mobile || cleanDigits,
         address: user.address || '',
         location: user.location || 'Chennai, Tamil Nadu',
         latitude: Number(user.latitude) || 13.0827,
@@ -135,7 +174,10 @@ export const ServerAPI = {
         delivery_partner_name: user.delivery_partner_name || 'Delivery Partner',
         delivery_partner_mobile: user.delivery_partner_mobile || '',
         delivery_partner_photo: user.delivery_partner_photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-        payment_status: user.payment_status === 'PAID' ? 'PAID' : 'PENDING'
+        payment_status: user.payment_status === 'PAID' ? 'PAID' : 'PENDING',
+        is_paused: Boolean(user.is_paused),
+        paused_until: user.paused_until || undefined,
+        pause_notes: user.pause_notes || undefined
       };
 
       return { success: true, data: profile };
@@ -149,24 +191,27 @@ export const ServerAPI = {
    */
   async registerCustomer(payload: RegisterPayload): Promise<{ success: boolean; data?: CustomerProfile; message?: string }> {
     try {
-      let assignedId = (payload.customer_id || '').trim().toUpperCase();
+      let assignedId = SecurityUtils.sanitizePostgrestParam((payload.customer_id || '').toUpperCase());
       if (!assignedId || !assignedId.startsWith('AMU-')) {
         assignedId = await getNextAmuCustomerId();
       }
-      const mobile = payload.mobile.trim();
-      const cleanDigits = mobile.replaceAll(/[^0-9]/g, '');
-      const last10Digits = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+      const cleanDigits = SecurityUtils.sanitizeMobileDigits(payload.mobile);
+      if (!cleanDigits || cleanDigits.length < 10) {
+        return { success: false, message: 'A valid 10-digit mobile number is required.' };
+      }
+      if (!payload.password || payload.password.trim().length < 6) {
+        return { success: false, message: 'Password must be at least 6 characters long.' };
+      }
 
       // 1. Check duplicate mobile number
-      if (last10Digits) {
-        const { data: existingMobile } = await supabase
-          .from('customers')
-          .select('id, mobile')
-          .ilike('mobile', `%${last10Digits}%`);
+      const { data: existingMobile } = await supabase
+        .from('customers')
+        .select('id, mobile')
+        .or(`mobile.eq.${cleanDigits},phone.eq.${cleanDigits}`)
+        .limit(1);
 
-        if (existingMobile && existingMobile.length > 0) {
-          return { success: false, message: `Mobile number "${mobile}" is already registered.` };
-        }
+      if (existingMobile && existingMobile.length > 0) {
+        return { success: false, message: `Mobile number "${cleanDigits}" is already registered. Please login.` };
       }
 
       // 2. Check duplicate customer_id
@@ -179,26 +224,46 @@ export const ServerAPI = {
         return { success: false, message: `Customer ID "${assignedId}" is already taken.` };
       }
 
-      // 3. Insert into customers table
-      const qty = payload.milk_quantity !== undefined ? Number(payload.milk_quantity) : 1.5;
-      const timing = payload.delivery_timing || '5:00 AM - 9:30 AM';
-      const monthlyRate = Math.round(qty * 65 * 30);
-      const altMobile = (payload.alternate_mobile || payload.alt_mobile || '').trim();
+      // 3. Insert into customers table with Salted SHA-256 password hash
+      const qty = payload.milk_quantity !== undefined ? Number(payload.milk_quantity) : 1.0;
+      const milkType = payload.milk_type || 'Pure Fresh Cow Milk';
+      const timing = payload.delivery_timing || 'Morning Shift';
+      const frequency = payload.delivery_frequency || 'Daily Delivery';
+      const paymentPlan = payload.payment_plan || 'Monthly Postpaid';
+      const area = payload.area || 'Salem Central';
+      const city = payload.city || 'Salem';
+      const pincode = payload.pincode || '636004';
+      const rate = milkType.toLowerCase().includes('buffalo') ? 80 : 65;
+      const monthlyRate = Math.round(qty * rate * 30);
+      const altMobile = SecurityUtils.sanitizeMobileDigits(payload.alternate_mobile || payload.alt_mobile || '');
+      const securePasswordHash = SecurityUtils.hashPassword(payload.password);
 
       const custPayload: Record<string, any> = {
         customer_id: assignedId,
-        name: payload.name.trim(),
-        mobile: mobile,
-        password: payload.password,
-        address: payload.address.trim(),
-        location: `${payload.area || 'Anna Nagar'}, ${payload.city || 'Chennai'}`,
-        latitude: parseFloat(payload.latitude) || 13.0827,
-        longitude: parseFloat(payload.longitude) || 80.2707,
+        name: SecurityUtils.sanitizeText(payload.name),
+        mobile: cleanDigits,
+        phone: cleanDigits,
+        password: securePasswordHash,
+        address: SecurityUtils.sanitizeText(payload.address),
+        location: `${SecurityUtils.sanitizeText(area)}, ${SecurityUtils.sanitizeText(city)}`,
+        area: SecurityUtils.sanitizeText(area),
+        city: SecurityUtils.sanitizeText(city),
+        pincode: SecurityUtils.sanitizeText(pincode),
+        latitude: parseFloat(payload.latitude) || 11.6643,
+        longitude: parseFloat(payload.longitude) || 78.1460,
+        milk_type: milkType,
         milk_quantity: qty,
         delivery_timing: timing,
-        payment_status: 'PAID',
+        delivery_days: frequency,
+        subscription_plan: 'Daily Subscription',
+        payment_plan: paymentPlan,
+        payment_status: 'PENDING',
         account_status: 'ACTIVE',
-        monthly_rate: monthlyRate
+        is_active: true,
+        is_paid: false,
+        monthly_rate: monthlyRate,
+        empty_bottles_held: 2,
+        bottles_returned: 0
       };
 
       if (altMobile) {
@@ -213,7 +278,6 @@ export const ServerAPI = {
         .single();
 
       if (insertErr && (insertErr.message.includes('alternate_mobile') || insertErr.message.includes('alt_mobile'))) {
-        // Fallback without alternate_mobile in case remote db column is not yet migrated
         delete custPayload.alternate_mobile;
         delete custPayload.alt_mobile;
         const res = await supabase.from('customers').insert(custPayload).select().single();
@@ -232,14 +296,64 @@ export const ServerAPI = {
         await supabase.from('customer_locations').insert({
           customer_id: customerId,
           address: payload.address.trim(),
-          pincode: payload.pincode || '600040',
-          area: payload.area || 'Anna Nagar',
-          city: payload.city || 'Chennai',
-          district: payload.district || 'Chennai',
-          state: payload.state || 'Tamil Nadu',
-          latitude: parseFloat(payload.latitude) || 13.0827,
-          longitude: parseFloat(payload.longitude) || 80.2707,
+          pincode: pincode,
+          area: area,
+          city: city,
+          district: 'Salem',
+          state: 'Tamil Nadu',
+          latitude: parseFloat(payload.latitude) || 11.6643,
+          longitude: parseFloat(payload.longitude) || 78.1460,
           is_primary: true
+        });
+      } catch (_) {}
+
+      // 5. Insert initial subscription into customer_subscriptions
+      try {
+        await supabase.from('customer_subscriptions').insert({
+          customer_id: assignedId,
+          plan_name: 'Daily Subscription',
+          quantity: qty,
+          daily_quantity: qty,
+          frequency: frequency,
+          delivery_days: frequency,
+          timing_slot: timing,
+          billing_cycle: paymentPlan,
+          status: 'ACTIVE',
+          start_date: new Date().toISOString().split('T')[0]
+        });
+      } catch (_) {}
+
+      // 6. Create initial order in orders table so Admin Panel Orders Master displays it
+      try {
+        const todayDate = new Date().toISOString().split('T')[0];
+        const tmrw = new Date();
+        tmrw.setDate(tmrw.getDate() + 1);
+        const tmrwDate = tmrw.toISOString().split('T')[0];
+
+        await supabase.from('orders').insert({
+          id: `ord-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          order_number: `ORD-${Date.now().toString().slice(-6)}`,
+          customer_id: assignedId,
+          customer_name: payload.name.trim(),
+          mobile: cleanDigits,
+          address: payload.address.trim(),
+          location: `${area}, ${city}`,
+          area: area,
+          route_name: 'Salem Morning Route 1',
+          milk_product_id: milkType.toLowerCase().includes('buffalo') ? 'prod-buffalo' : 'prod-cow',
+          milk_product_name: milkType,
+          quantity: qty,
+          quantity_liters: qty,
+          rate_per_liter: rate,
+          total_amount: Math.round(qty * rate),
+          delivery_timing: timing,
+          subscription_plan: 'Daily Subscription',
+          order_date: todayDate,
+          scheduled_date: tmrwDate,
+          order_status: 'PENDING',
+          delivery_status: 'SCHEDULED',
+          payment_status: 'PENDING',
+          notes: `New customer subscription created via Customer Mobile App. Preferred Plan: ${paymentPlan}. Drop: ${payload.delivery_instructions || 'Doorstep'}`
         });
       } catch (_) {}
 
@@ -247,24 +361,24 @@ export const ServerAPI = {
         id: customerId,
         customer_id: assignedId,
         name: payload.name.trim(),
-        mobile: mobile,
+        mobile: cleanDigits,
         alternate_mobile: altMobile,
         alt_mobile: altMobile,
         address: payload.address.trim(),
-        location: `${payload.area || 'Anna Nagar'}, ${payload.city || 'Chennai'}`,
-        latitude: parseFloat(payload.latitude) || 13.0827,
-        longitude: parseFloat(payload.longitude) || 80.2707,
-        pincode: payload.pincode || '600040',
-        area: payload.area || 'Anna Nagar',
-        city: payload.city || 'Chennai',
-        district: payload.district || 'Chennai',
-        state: payload.state || 'Tamil Nadu',
+        location: `${area}, ${city}`,
+        latitude: parseFloat(payload.latitude) || 11.6643,
+        longitude: parseFloat(payload.longitude) || 78.1460,
+        pincode: pincode,
+        area: area,
+        city: city,
+        district: 'Salem',
+        state: 'Tamil Nadu',
         milk_quantity: qty,
-        milk_type: 'Pure Farm Fresh Raw Cow Milk (A2)',
+        milk_type: milkType,
         monthly_rate: monthlyRate,
         delivery_timing: timing,
         assigned_delivery_person_id: '',
-        delivery_partner_name: 'Unassigned',
+        delivery_partner_name: 'Unassigned (Auto Allocation Pending)',
         delivery_partner_mobile: '',
         delivery_partner_photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
         payment_status: 'PAID'
@@ -282,15 +396,20 @@ export const ServerAPI = {
   async resetPasswordByMobile(mobileOrId: string, newPassword: string): Promise<{ success: boolean; message?: string }> {
     try {
       const cleanInput = mobileOrId.trim();
-      const cleanDigits = cleanInput.replaceAll(/[^0-9]/g, '');
-      const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+      const cleanDigits = SecurityUtils.sanitizeMobileDigits(cleanInput);
+      const safeId = SecurityUtils.sanitizePostgrestParam(cleanInput);
 
-      let query = supabase.from('customers').select('id');
-      if (last10.length >= 6) {
-        query = query.or(`mobile.ilike.%${last10}%,customer_id.eq.${cleanInput},id.eq.${cleanInput}`);
-      } else {
-        query = query.or(`customer_id.eq.${cleanInput},id.eq.${cleanInput}`);
+      if (cleanDigits.length < 10 && !safeId) {
+        return { success: false, message: 'Valid 10-digit mobile number or Customer ID is required.' };
       }
+      if (!newPassword || newPassword.trim().length < 6) {
+        return { success: false, message: 'Password must be at least 6 characters long.' };
+      }
+
+      const query = supabase
+        .from('customers')
+        .select('id')
+        .or(buildCustomerLookupOr(cleanDigits, safeId));
 
       const { data, error } = await query;
       if (error || !data || data.length === 0) {
@@ -298,9 +417,10 @@ export const ServerAPI = {
       }
 
       const userId = data[0].id;
+      const securePasswordHash = SecurityUtils.hashPassword(newPassword.trim());
       const { error: updateErr } = await supabase
         .from('customers')
-        .update({ password: newPassword })
+        .update({ password: securePasswordHash })
         .eq('id', userId);
 
       if (updateErr) {
@@ -318,24 +438,34 @@ export const ServerAPI = {
    */
   async updatePassword(customerId: string, oldPassword: string, newPassword: string): Promise<{ success: boolean; message?: string }> {
     try {
+      const safeCustId = SecurityUtils.sanitizePostgrestParam(customerId);
+      if (!safeCustId) {
+        return { success: false, message: 'Invalid customer identifier.' };
+      }
+      if (!newPassword || newPassword.trim().length < 6) {
+        return { success: false, message: 'New password must be at least 6 characters long.' };
+      }
+
       const { data, error } = await supabase
         .from('customers')
         .select('password')
-        .eq('id', customerId)
+        .eq('id', safeCustId)
         .single();
 
       if (error || !data) {
         return { success: false, message: 'Could not fetch customer credentials.' };
       }
 
-      if (data.password && data.password !== oldPassword) {
+      const isValidOld = SecurityUtils.verifyPassword(oldPassword, data.password);
+      if (!isValidOld) {
         return { success: false, message: 'Current password is incorrect.' };
       }
 
+      const securePasswordHash = SecurityUtils.hashPassword(newPassword.trim());
       const { error: updateErr } = await supabase
         .from('customers')
-        .update({ password: newPassword })
-        .eq('id', customerId);
+        .update({ password: securePasswordHash })
+        .eq('id', safeCustId);
 
       if (updateErr) {
         return { success: false, message: updateErr.message };
@@ -394,12 +524,13 @@ export const ServerAPI = {
    * Fetch Delivery Partner details from employees table in Supabase
    */
   async fetchPartnerDetails(partnerId: string): Promise<PartnerInfo | null> {
-    if (!partnerId) return null;
+    const safePartnerId = SecurityUtils.sanitizePostgrestParam(partnerId);
+    if (!safePartnerId) return null;
     try {
       const { data } = await supabase
         .from('employees')
         .select('*')
-        .or(`id.eq.${partnerId},employee_id.eq.${partnerId}`)
+        .or(`id.eq.${safePartnerId},employee_id.eq.${safePartnerId}`)
         .maybeSingle();
 
       if (data) {
@@ -422,17 +553,16 @@ export const ServerAPI = {
    */
   async resolveCustomerIds(customerId: string, mobile?: string): Promise<string[]> {
     const ids = new Set<string>();
-    if (customerId) ids.add(customerId);
+    const safeCustId = SecurityUtils.sanitizePostgrestParam(customerId);
+    if (safeCustId) ids.add(safeCustId);
 
-    const cleanDigits = (mobile || '').replace(/[^0-9]/g, '');
-    const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
-
-    if (last10.length >= 10) {
+    const cleanDigits = SecurityUtils.sanitizeMobileDigits(mobile);
+    if (cleanDigits.length >= 10) {
       try {
         const { data } = await supabase
           .from('customers')
           .select('id, customer_id')
-          .or(`mobile.ilike.%${last10}%,phone.ilike.%${last10}%`);
+          .or(`mobile.eq.${cleanDigits},phone.eq.${cleanDigits}`);
         (data || []).forEach((c: any) => {
           if (c.id) ids.add(c.id);
           if (c.customer_id) ids.add(c.customer_id);
@@ -447,17 +577,67 @@ export const ServerAPI = {
    */
   async fetchEnterpriseSettings(): Promise<any | null> {
     try {
+      // 1. Prioritize primary_enterprise_config
+      const { data: primary } = await supabase
+        .from('enterprise_settings')
+        .select('*')
+        .eq('id', 'primary_enterprise_config')
+        .single();
+      if (primary) {
+        return {
+          ...primary,
+          office_latitude: primary.office_latitude !== undefined && primary.office_latitude !== null ? Number(primary.office_latitude) : 11.664325,
+          office_longitude: primary.office_longitude !== undefined && primary.office_longitude !== null ? Number(primary.office_longitude) : 78.146014,
+          google_maps_url: primary.google_maps_url || 'https://maps.google.com/?q=11.664325,78.146014'
+        };
+      }
+
+      // 2. Try sri_aashikaa_website_config
+      const { data: webConfig } = await supabase
+        .from('enterprise_settings')
+        .select('*')
+        .eq('id', 'sri_aashikaa_website_config')
+        .single();
+      if (webConfig) {
+        return {
+          ...webConfig,
+          office_latitude: webConfig.office_latitude !== undefined && webConfig.office_latitude !== null ? Number(webConfig.office_latitude) : 11.664325,
+          office_longitude: webConfig.office_longitude !== undefined && webConfig.office_longitude !== null ? Number(webConfig.office_longitude) : 78.146014,
+          google_maps_url: webConfig.google_maps_url || 'https://maps.google.com/?q=11.664325,78.146014'
+        };
+      }
+
+      // 3. Fallback to any row with head_office_address or ordered by updated_at
       const { data } = await supabase
         .from('enterprise_settings')
         .select('*')
+        .not('head_office_address', 'is', null)
+        .order('updated_at', { ascending: false })
         .limit(1);
       if (data && data.length > 0) {
-        return data[0];
+        return {
+          ...data[0],
+          office_latitude: data[0].office_latitude !== undefined && data[0].office_latitude !== null ? Number(data[0].office_latitude) : 11.664325,
+          office_longitude: data[0].office_longitude !== undefined && data[0].office_longitude !== null ? Number(data[0].office_longitude) : 78.146014,
+          google_maps_url: data[0].google_maps_url || 'https://maps.google.com/?q=11.664325,78.146014'
+        };
       }
     } catch (err) {
       console.log('Error fetching enterprise_settings:', err);
     }
-    return null;
+
+    return {
+      company_name: 'SRI AASHIKAA MILKS',
+      support_phone: '+91 98765 43210',
+      secondary_phone: '+91 94432 10987',
+      support_email: 'contact@sriaashikaa.com',
+      head_office_address: 'Plot 42, Dairy Tech Park, Salem / Erode Highway, Tamil Nadu',
+      branch_address: 'Salem Central Hub, 4-A Meyyanur Bypass, Salem - 636004',
+      office_latitude: 11.664325,
+      office_longitude: 78.146014,
+      google_maps_url: 'https://maps.google.com/?q=11.664325,78.146014',
+      website_url: 'https://sriaashikaa.com',
+    };
   },
 
   /**
@@ -482,7 +662,8 @@ export const ServerAPI = {
           pending_amount: Number(p.pending_amount) || 0,
           due_date: p.payment_date || (p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : ''),
           payment_method: (p.payment_method as any) || 'UPI',
-          status: p.payment_status === 'PAID' ? 'PAID' : 'PENDING'
+          status: p.payment_status === 'PAID' ? 'PAID' : 'PENDING',
+          invoice_url: p.invoice_url || undefined
         }));
       }
     } catch (err) {
@@ -535,7 +716,9 @@ export const ServerAPI = {
    */
   async processPayment(customerId: string, amount: number): Promise<{ success: boolean; ref?: string; message?: string }> {
     try {
-      const payId = `PAY-${Date.now().toString().slice(-6)}`;
+      const now = new Date();
+      const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const payId = `INV-${ym}-${Math.floor(10000 + Math.random() * 90000)}`;
       const upiRef = `UPI-${Math.floor(100000000000 + Math.random() * 900000000000)}`;
 
       const { error } = await supabase.from('payments').insert({
@@ -573,21 +756,39 @@ export const ServerAPI = {
    */
   async updateProfile(customerId: string, name: string, mobile: string, address: string, alternateMobile?: string): Promise<{ success: boolean; message?: string }> {
     try {
-      const updateData: Record<string, any> = { name, mobile, address };
-      if (alternateMobile !== undefined) {
-        updateData.alternate_mobile = alternateMobile;
-        updateData.alt_mobile = alternateMobile;
+      const safeCustId = SecurityUtils.sanitizePostgrestParam(customerId);
+      if (!safeCustId) {
+        return { success: false, message: 'Invalid customer identifier.' };
+      }
+      const cleanName = SecurityUtils.sanitizeText(name, 100);
+      const cleanMobile = SecurityUtils.sanitizeMobileDigits(mobile);
+      const cleanAddress = SecurityUtils.sanitizeText(address, 300);
+      const cleanAltMobile = alternateMobile ? SecurityUtils.sanitizeMobileDigits(alternateMobile) : undefined;
+
+      if (cleanMobile.length < 10) {
+        return { success: false, message: 'A valid 10-digit mobile number is required.' };
+      }
+
+      const updateData: Record<string, any> = {
+        name: cleanName,
+        mobile: cleanMobile,
+        phone: cleanMobile,
+        address: cleanAddress,
+      };
+      if (cleanAltMobile) {
+        updateData.alternate_mobile = cleanAltMobile;
+        updateData.alt_mobile = cleanAltMobile;
       }
 
       let { error } = await supabase
         .from('customers')
         .update(updateData)
-        .eq('id', customerId);
+        .eq('id', safeCustId);
 
       if (error && (error.message.includes('alternate_mobile') || error.message.includes('alt_mobile'))) {
         delete updateData.alternate_mobile;
         delete updateData.alt_mobile;
-        const res = await supabase.from('customers').update(updateData).eq('id', customerId);
+        const res = await supabase.from('customers').update(updateData).eq('id', safeCustId);
         error = res.error;
       }
 
@@ -605,12 +806,18 @@ export const ServerAPI = {
    */
   async requestCancellation(customerId: string, cancellationDate: string, reason: string): Promise<{ success: boolean; data?: CancellationItem; message?: string }> {
     try {
+      const safeCustId = SecurityUtils.sanitizePostgrestParam(customerId);
+      if (!safeCustId) {
+        return { success: false, message: 'Invalid customer identifier.' };
+      }
+      const cleanReason = SecurityUtils.sanitizeText(reason, 250);
+
       const { data, error } = await supabase
         .from('cancellation_requests')
         .insert({
-          customer_id: customerId,
+          customer_id: safeCustId,
           cancellation_date: cancellationDate,
-          reason: reason,
+          reason: cleanReason,
           approval_status: 'REQUESTED'
         })
         .select()
@@ -665,21 +872,32 @@ export const ServerAPI = {
   /**
    * Fetch customer delivery/order list from Supabase deliveries & assignments table
    */
-  async fetchCustomerDeliveries(customerId: string): Promise<DeliveryItem[]> {
+  async fetchCustomerDeliveries(customerId: string, mobile?: string): Promise<DeliveryItem[]> {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
       const items: DeliveryItem[] = [];
+      const ids = await this.resolveCustomerIds(customerId, mobile);
+      const cleanDigits = SecurityUtils.sanitizeMobileDigits(mobile);
 
       // 1. Fetch historical and today deliveries
-      const { data } = await supabase
-        .from('deliveries')
-        .select('*')
-        .eq('customer_id', customerId)
-        .order('delivery_date', { ascending: false });
+      let query = supabase.from('deliveries').select('*');
+      if (ids.length > 0 && cleanDigits.length >= 10) {
+        query = query.or(`customer_id.in.(${ids.join(',')}),mobile.eq.${cleanDigits}`);
+      } else if (ids.length > 0) {
+        query = query.in('customer_id', ids);
+      } else if (cleanDigits.length >= 10) {
+        query = query.eq('mobile', cleanDigits);
+      } else {
+        query = query.eq('customer_id', customerId);
+      }
+
+      const { data } = await query.order('delivery_date', { ascending: false });
 
       if (data && data.length > 0) {
         items.push(...data.map((d: any) => ({
           id: d.id,
+          order_id: d.order_id || d.order_number || d.id,
+          product_name: d.product_name || d.milk_product || 'Pure Farm Fresh Raw Cow Milk',
           date: d.delivery_date || (d.created_at ? d.created_at.split('T')[0] : ''),
           quantity: Number(d.quantity) || 1.0,
           total_amount: Number(d.total_amount) || (Number(d.quantity) * 65),
@@ -810,13 +1028,24 @@ export const ServerAPI = {
     try {
       await supabase.from('customer_subscriptions').update({ status: 'CANCELLED' }).eq('customer_id', customerId);
       await supabase.from('cancellation_requests').update({ approval_status: 'CANCELLED' }).eq('customer_id', customerId);
-      await supabase.from('customers').update({
+      const { error: delErr } = await supabase.from('customers').update({
         status: 'DELETED',
         account_status: 'DELETED',
         password: `DELETED_${Date.now()}`,
         is_paid: false,
         updated_at: new Date().toISOString(),
       }).eq('id', customerId);
+
+      if (delErr) {
+        // Fallback if 'DELETED' is not in database enum
+        await supabase.from('customers').update({
+          status: 'SUSPENDED',
+          account_status: 'SUSPENDED',
+          password: `DELETED_${Date.now()}`,
+          is_paid: false,
+          updated_at: new Date().toISOString(),
+        }).eq('id', customerId);
+      }
       return true;
     } catch (err) {
       console.log('Error deleting customer account:', err);
@@ -1131,7 +1360,9 @@ export const ServerAPI = {
   unserviceableLocationMessage: 'We are not available at your location yet, but we will quickly reach to your location',
 
   defaultServiceablePincodes: [
-    '600040', '600017', '600020', '600042', '600010', '600004', '600116', '600096', '636004', '636007'
+    '636004', '636016', '636007', '636001', '636002', '636003',
+    '636005', '636006', '636008', '636502', '636014', '636010',
+    '636009', '636012', '636030', '600040', '600017'
   ],
 
   /**
@@ -1204,8 +1435,8 @@ export const ServerAPI = {
     const data = {
       id: reqId,
       pincode: cleanPin,
-      area_name: payload.areaName || 'Unspecified',
-      city: payload.city || 'Chennai',
+      area_name: payload.areaName || 'Salem Zone',
+      city: payload.city || 'Salem',
       state: 'Tamil Nadu',
       customer_name: payload.customerName || 'Customer Lead',
       customer_mobile: payload.customerMobile || '',
@@ -1219,46 +1450,216 @@ export const ServerAPI = {
       updated_at: nowIso,
     };
 
+    // Write strictly to pincode_delivery_requests; never mutate enterprise_settings from client
     try {
       await supabase.from('pincode_delivery_requests').insert(data);
-      return;
     } catch (_) {}
+  },
 
+  /**
+   * Fetch customer complaints list from Supabase customer_complaints table
+   */
+  async fetchCustomerComplaints(customerId: string, mobile?: string): Promise<ComplaintItem[]> {
     try {
-      const { data: ent } = await supabase
-        .from('enterprise_settings')
-        .select('app_release_notes')
-        .eq('id', 'primary_pincode_requests')
+      const ids = await this.resolveCustomerIds(customerId, mobile);
+      const cleanDigits = SecurityUtils.sanitizeMobileDigits(mobile);
+
+      let query = supabase.from('customer_complaints').select('*');
+      if (ids.length > 0 && cleanDigits.length >= 10) {
+        query = query.or(`customer_id.in.(${ids.join(',')}),customer_phone.eq.${cleanDigits}`);
+      } else if (ids.length > 0) {
+        query = query.in('customer_id', ids);
+      } else if (cleanDigits.length >= 10) {
+        query = query.eq('customer_phone', cleanDigits);
+      } else {
+        query = query.eq('customer_id', customerId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) {
+        console.log('Error fetching customer complaints:', error.message);
+        return [];
+      }
+
+      return (data || []).map((c: any) => ({
+        id: c.id,
+        ticket_number: c.ticket_number || `CMP-${c.id.slice(0, 8)}`,
+        customer_id: c.customer_id,
+        customer_name: c.customer_name || 'Customer',
+        customer_phone: c.customer_phone,
+        customer_email: c.customer_email,
+        order_id: c.order_id,
+        delivery_date: c.delivery_date,
+        milk_product_name: c.milk_product_name,
+        category: c.category || 'QUALITY_ISSUE',
+        issue_subtype: c.issue_subtype,
+        title: c.title,
+        description: c.description || '',
+        priority: c.priority || 'HIGH',
+        status: c.status || 'OPEN',
+        action_taken: c.action_taken,
+        action_type: c.action_type,
+        refund_amount: Number(c.refund_amount) || 0,
+        action_taken_by: c.action_taken_by,
+        action_taken_at: c.action_taken_at,
+        email_notified_at: c.email_notified_at,
+        email_sent_to: c.email_sent_to,
+        created_at: c.created_at || new Date().toISOString(),
+        updated_at: c.updated_at
+      }));
+    } catch (err) {
+      console.log('Error in fetchCustomerComplaints:', err);
+      return [];
+    }
+  },
+
+  /**
+   * Register a new complaint for bottle freshness or milk quality
+   */
+  async createCustomerComplaint(params: {
+    customer: CustomerProfile;
+    orderId?: string;
+    deliveryDate?: string;
+    milkProductName?: string;
+    category: string;
+    issueSubtype?: string;
+    title?: string;
+    description: string;
+    priority?: string;
+  }): Promise<{ success: boolean; ticketNumber?: string; message?: string }> {
+    try {
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const randomPart = Math.floor(1000 + Math.random() * 9000);
+      const ticketNumber = `CMP-${datePart}-${randomPart}`;
+
+      const complaintData: any = {
+        ticket_number: ticketNumber,
+        customer_id: params.customer.id,
+        customer_name: params.customer.name,
+        customer_phone: params.customer.mobile,
+        order_id: params.orderId || null,
+        delivery_date: params.deliveryDate || null,
+        milk_product_name: params.milkProductName || 'Pure Farm Fresh Raw Cow Milk',
+        category: params.category,
+        issue_subtype: params.issueSubtype || null,
+        title: params.title || `${params.category.replace(/_/g, ' ')} - Order issue reported`,
+        description: params.description.trim(),
+        priority: params.priority || 'HIGH',
+        status: 'OPEN',
+        created_at: now.toISOString(),
+        updated_at: now.toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('customer_complaints')
+        .insert(complaintData)
+        .select()
         .single();
 
-      let list: any[] = [];
-      if (ent?.app_release_notes) {
-        try {
-          const parsed = JSON.parse(ent.app_release_notes);
-          if (Array.isArray(parsed)) list = parsed;
-        } catch (_) {}
+      if (error) {
+        return { success: false, message: error.message };
       }
 
-      const existingIdx = list.findIndex(
-        (r) =>
-          r.pincode === cleanPin &&
-          (payload.customerMobile ? r.customer_mobile === payload.customerMobile : true)
-      );
+      return { success: true, ticketNumber: data?.ticket_number || ticketNumber };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to submit complaint.' };
+    }
+  },
 
-      if (existingIdx >= 0) {
-        list[existingIdx].request_count = (list[existingIdx].request_count || 1) + 1;
-        list[existingIdx].updated_at = nowIso;
+  /**
+   * Pause/Hold a specific delivery order
+   */
+  async pauseCustomerOrder(orderId: string, customerId?: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const { error } = await supabase
+        .from('deliveries')
+        .update({
+          delivery_status: 'PAUSED',
+          order_status: 'PAUSED',
+          notes: 'Delivery held/paused by customer request'
+        })
+        .eq('id', orderId);
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to pause order.' };
+    }
+  },
+
+  /**
+   * Resume a paused delivery order
+   */
+  async resumeCustomerOrder(orderId: string, customerId?: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const { error } = await supabase
+        .from('deliveries')
+        .update({
+          delivery_status: 'SCHEDULED',
+          order_status: 'SCHEDULED',
+          notes: 'Delivery resumed by customer'
+        })
+        .eq('id', orderId);
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to resume order.' };
+    }
+  },
+
+  /**
+   * Pause or resume customer daily subscription (Hold all orders until return)
+   */
+  async toggleCustomerSubscriptionPause(customerId: string, isPaused: boolean, notes?: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const { error: custErr } = await supabase
+        .from('customers')
+        .update({
+          is_paused: isPaused,
+          pause_notes: notes || (isPaused ? 'Subscription held by customer' : null)
+        })
+        .eq('id', customerId);
+
+      if (custErr) {
+        return { success: false, message: custErr.message };
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+      if (isPaused) {
+        await supabase
+          .from('deliveries')
+          .update({
+            delivery_status: 'PAUSED',
+            order_status: 'PAUSED',
+            notes: 'Subscription paused by customer'
+          })
+          .eq('customer_id', customerId)
+          .gte('delivery_date', today)
+          .eq('delivery_status', 'SCHEDULED');
       } else {
-        list.unshift(data);
+        await supabase
+          .from('deliveries')
+          .update({
+            delivery_status: 'SCHEDULED',
+            order_status: 'SCHEDULED',
+            notes: 'Subscription resumed by customer'
+          })
+          .eq('customer_id', customerId)
+          .gte('delivery_date', today)
+          .eq('delivery_status', 'PAUSED');
       }
 
-      await supabase.from('enterprise_settings').upsert({
-        id: 'primary_pincode_requests',
-        company_name: 'Customer Pincode Delivery Requests',
-        app_release_notes: JSON.stringify(list),
-        updated_at: nowIso,
-      });
-    } catch (_) {}
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update subscription status.' };
+    }
   }
 };
 

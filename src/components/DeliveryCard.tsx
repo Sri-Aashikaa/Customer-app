@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { DeliveryStatus } from '../types';
 import { colors, spacing, radius } from '../theme/theme';
 
@@ -7,9 +7,19 @@ interface DeliveryCardProps {
   status: DeliveryStatus;
   quantity: number;
   timing: string;
+  onReportIssue?: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
 }
 
-export const DeliveryCard: React.FC<DeliveryCardProps> = ({ status, quantity, timing }) => {
+export const DeliveryCard: React.FC<DeliveryCardProps> = ({
+  status,
+  quantity,
+  timing,
+  onReportIssue,
+  onPause,
+  onResume,
+}) => {
   const getStatusLabel = (s: DeliveryStatus) => {
     switch (s) {
       case 'DELIVERED':
@@ -21,6 +31,8 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({ status, quantity, ti
       case 'IN_TRANSIT':
       case 'ASSIGNED':
         return 'In Transit';
+      case 'PAUSED':
+        return 'Paused / On Hold ⏸️';
       case 'FAILED':
         return 'Delivery Failed';
       case 'CANCELLED':
@@ -31,7 +43,7 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({ status, quantity, ti
   };
 
   const isStepActive = (step: string) => {
-    if (status === 'CANCELLED' || status === 'FAILED') return false;
+    if (status === 'CANCELLED' || status === 'FAILED' || status === 'PAUSED') return false;
     switch (step) {
       case 'SCHEDULED':
         return true;
@@ -52,8 +64,10 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({ status, quantity, ti
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>Today's Delivery</Text>
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusBadgeText}>{getStatusLabel(status)}</Text>
+        <View style={[styles.statusBadge, status === 'PAUSED' && styles.statusBadgePaused]}>
+          <Text style={[styles.statusBadgeText, status === 'PAUSED' && styles.statusBadgeTextPaused]}>
+            {getStatusLabel(status)}
+          </Text>
         </View>
       </View>
 
@@ -89,6 +103,27 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({ status, quantity, ti
             {isStepActive('DELIVERED') ? '✓ Delivered' : '⚪ Delivered'}
           </Text>
         </View>
+      </View>
+
+      {/* ACTION BUTTONS (REPORT ISSUE / PAUSE / RESUME) */}
+      <View style={styles.actionsContainer}>
+        {status === 'DELIVERED' && onReportIssue && (
+          <TouchableOpacity style={styles.reportIssueBtn} onPress={onReportIssue} activeOpacity={0.8}>
+            <Text style={styles.reportIssueBtnText}>⚠️ Report Bottle / Quality Issue</Text>
+          </TouchableOpacity>
+        )}
+
+        {status === 'SCHEDULED' && onPause && (
+          <TouchableOpacity style={styles.pauseOrderBtn} onPress={onPause} activeOpacity={0.8}>
+            <Text style={styles.pauseOrderBtnText}>⏸️ Hold / Pause Today's Delivery</Text>
+          </TouchableOpacity>
+        )}
+
+        {status === 'PAUSED' && onResume && (
+          <TouchableOpacity style={styles.resumeOrderBtn} onPress={onResume} activeOpacity={0.8}>
+            <Text style={styles.resumeOrderBtnText}>▶️ Resume Today's Delivery</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -175,5 +210,61 @@ const styles = StyleSheet.create({
   stepPending: {
     color: colors.textLight,
     fontSize: 11,
+  },
+  statusBadgePaused: {
+    backgroundColor: '#fef3c7',
+    borderColor: '#f59e0b',
+  },
+  statusBadgeTextPaused: {
+    color: '#b45309',
+  },
+  actionsContainer: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.xs,
+  },
+  reportIssueBtn: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    paddingVertical: 8,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  reportIssueBtnText: {
+    color: '#c2410c',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pauseOrderBtn: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    paddingVertical: 8,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  pauseOrderBtnText: {
+    color: '#b45309',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  resumeOrderBtn: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingVertical: 8,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  resumeOrderBtnText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

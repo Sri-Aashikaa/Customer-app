@@ -7,7 +7,17 @@ import { colors, spacing, radius } from '../theme/theme';
 import { ServerAPI } from '../services/api';
 
 export const DashboardScreen: React.FC = () => {
-  const { customer, partnerDetails, deliveryStatus, setActiveTab, enterpriseSettings } = useAuth();
+  const {
+    customer,
+    partnerDetails,
+    deliveryStatus,
+    setActiveTab,
+    enterpriseSettings,
+    deliveries,
+    pauseOrder,
+    resumeOrder,
+    toggleSubscriptionPause
+  } = useAuth();
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState('Morning (5:00 AM - 9:30 AM)');
   const [selectedQty, setSelectedQty] = useState(1.0);
@@ -167,13 +177,45 @@ export const DashboardScreen: React.FC = () => {
         </TouchableOpacity>
       )}
 
+      {/* SUBSCRIPTION PAUSED STATUS BANNER */}
+      {customer?.is_paused && (
+        <View style={styles.pausedBanner}>
+          <Text style={{ fontSize: 24 }}>⏸️</Text>
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.pausedBannerTitle}>Deliveries Placed On Hold</Text>
+            <Text style={styles.pausedBannerSub}>
+              All scheduled deliveries are paused until you return. Tap to resume.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.resumePill}
+            onPress={() => {
+              Alert.alert('Resume Deliveries?', 'Resume your daily fresh raw milk deliveries?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Resume Now', onPress: () => toggleSubscriptionPause(false) }
+              ]);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.resumePillText}>Resume ▶️</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* QUICK ACTIONS ROW */}
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity style={styles.actionItem} onPress={() => setActiveTab('CANCEL')}>
           <View style={[styles.actionIconBg, { backgroundColor: '#fef3c7' }]}>
             <Text style={{ fontSize: 18 }}>⏸️</Text>
           </View>
-          <Text style={styles.actionLabel}>Pause Milk</Text>
+          <Text style={styles.actionLabel}>Hold / Pause</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionItem} onPress={() => setActiveTab('COMPLAINTS')}>
+          <View style={[styles.actionIconBg, { backgroundColor: '#fee2e2' }]}>
+            <Text style={{ fontSize: 18 }}>⚠️</Text>
+          </View>
+          <Text style={styles.actionLabel}>Report Issue</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionItem} onPress={() => setActiveTab('TIMING')}>
@@ -181,13 +223,6 @@ export const DashboardScreen: React.FC = () => {
             <Text style={{ fontSize: 18 }}>🥛</Text>
           </View>
           <Text style={styles.actionLabel}>Change Qty</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem} onPress={() => setActiveTab('DEPOSIT')}>
-          <View style={[styles.actionIconBg, { backgroundColor: '#eff6ff' }]}>
-            <Text style={{ fontSize: 18 }}>📦</Text>
-          </View>
-          <Text style={styles.actionLabel}>Bottles</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionItem} onPress={() => setActiveTab('PAYMENT')}>
@@ -203,6 +238,35 @@ export const DashboardScreen: React.FC = () => {
         status={deliveryStatus}
         quantity={customer.milk_quantity}
         timing={customer.delivery_timing}
+        onReportIssue={() => setActiveTab('COMPLAINTS')}
+        onPause={
+          deliveries.length > 0 && deliveries[0].status === 'SCHEDULED'
+            ? () => {
+                Alert.alert(
+                  'Hold Today\'s Delivery?',
+                  'Place today\'s scheduled milk delivery on hold?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Yes, Hold Order', onPress: () => pauseOrder(deliveries[0].id) }
+                  ]
+                );
+              }
+            : undefined
+        }
+        onResume={
+          deliveries.length > 0 && deliveries[0].status === 'PAUSED'
+            ? () => {
+                Alert.alert(
+                  'Resume Today\'s Delivery?',
+                  'Restore today\'s milk delivery to scheduled?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Yes, Resume', onPress: () => resumeOrder(deliveries[0].id) }
+                  ]
+                );
+              }
+            : undefined
+        }
       />
 
       {/* ORDER ADDITIONAL MILK BANNER CARD */}
@@ -543,6 +607,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#3b82f6',
     marginTop: 2,
+  },
+  pausedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1.5,
+    borderColor: '#fcd34d',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  pausedBannerTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  pausedBannerSub: {
+    fontSize: 11,
+    color: '#b45309',
+    marginTop: 2,
+  },
+  resumePill: {
+    backgroundColor: '#10b981',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+  },
+  resumePillText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   quickActionsGrid: {
     flexDirection: 'row',

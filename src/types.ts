@@ -7,7 +7,8 @@ export type DeliveryStatus =
   | 'NEAR_CUSTOMER' 
   | 'DELIVERED' 
   | 'FAILED' 
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PAUSED';
 
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'PENDING' | 'OVERDUE';
 export type PaymentMethod = 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'ONLINE';
@@ -41,6 +42,11 @@ export interface CustomerProfile {
   delivery_partner_mobile: string;
   delivery_partner_photo: string;
   payment_status: PaymentStatus;
+  empty_bottles_held?: number;
+  bottles_returned?: number;
+  is_paused?: boolean;
+  paused_until?: string;
+  pause_notes?: string;
 }
 
 export interface LocationUpdatePayload {
@@ -103,16 +109,62 @@ export interface PaymentItem {
   due_date: string;
   payment_method: PaymentMethod;
   status: PaymentStatus;
+  invoice_url?: string;
 }
 
 export interface DeliveryItem {
   id: string;
+  order_id?: string;
   date: string;
+  product_name?: string;
   quantity: number;
   total_amount: number;
   status: DeliveryStatus;
   delivery_time?: string;
   notes?: string;
+}
+
+export type ComplaintCategory = 
+  | 'QUALITY_ISSUE' 
+  | 'BOTTLE_ISSUE' 
+  | 'FRESHNESS_ISSUE' 
+  | 'DELIVERY_DELAY' 
+  | 'WRONG_ITEM' 
+  | 'BILLING_DISPUTE' 
+  | 'OTHER';
+
+export type ComplaintStatus = 
+  | 'OPEN' 
+  | 'INVESTIGATING' 
+  | 'ACTION_TAKEN' 
+  | 'RESOLVED' 
+  | 'CLOSED';
+
+export interface ComplaintItem {
+  id: string;
+  ticket_number: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone?: string;
+  customer_email?: string;
+  order_id?: string;
+  delivery_date?: string;
+  milk_product_name?: string;
+  category: string;
+  issue_subtype?: string;
+  title?: string;
+  description: string;
+  priority: string;
+  status: string;
+  action_taken?: string;
+  action_type?: string;
+  refund_amount?: number;
+  action_taken_by?: string;
+  action_taken_at?: string;
+  email_notified_at?: string;
+  email_sent_to?: string;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface RegisterPayload {
@@ -130,8 +182,15 @@ export interface RegisterPayload {
   pincode: string;
   latitude: string;
   longitude: string;
+  milk_type?: string;
   milk_quantity?: number;
   delivery_timing?: string;
+  delivery_frequency?: string;
+  delivery_days?: string;
+  payment_plan?: string;
+  payment_method?: string;
+  bottle_size?: string;
+  delivery_instructions?: string;
 }
 
 export interface CustomerReferralSettings {

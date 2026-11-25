@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState } from 'react';
 import { Alert } from 'react-native';
-import { CustomerProfile, PartnerInfo, PaymentItem, CancellationItem, DeliveryItem, DeliveryStatus, CancellationShift, RegisterPayload, LocationUpdatePayload } from '../types';
+import { CustomerProfile, PartnerInfo, PaymentItem, CancellationItem, DeliveryItem, DeliveryStatus, CancellationShift, RegisterPayload, LocationUpdatePayload, ComplaintItem } from '../types';
 import { ServerAPI } from '../services/api';
 
-export type NavigationTab = 'DASHBOARD' | 'TIMING' | 'CANCEL' | 'DEPOSIT' | 'PAYMENT' | 'REPORTS' | 'PROFILE';
+export type NavigationTab = 'DASHBOARD' | 'TIMING' | 'CANCEL' | 'DEPOSIT' | 'PAYMENT' | 'REPORTS' | 'COMPLAINTS' | 'PROFILE';
 
 interface AuthContextType {
   isLoggedIn: boolean;
@@ -15,6 +15,7 @@ interface AuthContextType {
   payments: PaymentItem[];
   cancellations: CancellationItem[];
   deliveries: DeliveryItem[];
+  complaints: ComplaintItem[];
   assets: { bottles: any[]; iceBoxes: any[]; deposits: any[]; bottleAlloc?: any; iceBoxAlloc?: any } | null;
   enterpriseSettings: any | null;
   deliveryStatus: DeliveryStatus;
@@ -32,6 +33,20 @@ interface AuthContextType {
   resetPasswordByMobile: (mobileOrId: string, newPass: string) => Promise<boolean>;
   processPayment: (amount: number) => Promise<boolean>;
   requestCancellation: (date: string, shift: CancellationShift, reason: string) => Promise<boolean>;
+  fetchComplaints: () => Promise<void>;
+  createComplaint: (params: {
+    orderId?: string;
+    deliveryDate?: string;
+    milkProductName?: string;
+    category: string;
+    issueSubtype?: string;
+    title?: string;
+    description: string;
+    priority?: string;
+  }) => Promise<{ success: boolean; ticketNumber?: string; message?: string }>;
+  pauseOrder: (orderId: string) => Promise<boolean>;
+  resumeOrder: (orderId: string) => Promise<boolean>;
+  toggleSubscriptionPause: (isPaused: boolean, notes?: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -46,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [cancellations, setCancellations] = useState<CancellationItem[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
+  const [complaints, setComplaints] = useState<ComplaintItem[]>([]);
   const [assets, setAssets] = useState<{ bottles: any[]; iceBoxes: any[]; deposits: any[]; bottleAlloc?: any; iceBoxAlloc?: any } | null>(null);
   const [enterpriseSettings, setEnterpriseSettings] = useState<any | null>(null);
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>('SCHEDULED');
@@ -76,8 +92,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cancelList = await ServerAPI.fetchCancellations(cust.id);
       setCancellations(cancelList);
 
-      const delList = await ServerAPI.fetchCustomerDeliveries(cust.id);
+      const delList = await ServerAPI.fetchCustomerDeliveries(cust.id, cust.mobile);
       setDeliveries(delList);
+
+      const compList = await ServerAPI.fetchCustomerComplaints(cust.id, cust.mobile);
+      setComplaints(compList);
 
       if (delList && delList.length > 0) {
         setDeliveryStatus(delList[0].status);
@@ -150,7 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCustomer(res.data);
       setIsLoggedIn(true);
       await refreshDataForCustomer(res.data);
-      Alert.alert('Account Created', `Welcome to Amutham Raw Milk, ${res.data.name}!`);
+      Alert.alert('Account Created', `Welcome to Sri Aashikaa, ${res.data.name}!`);
       return true;
     } else {
       Alert.alert('Registration Error', res.message || 'Registration failed.');
@@ -165,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPayments([]);
     setCancellations([]);
     setDeliveries([]);
+    setComplaints([]);
     setAssets(null);
     setEnterpriseSettings(null);
     setActiveTab('DASHBOARD');
@@ -291,6 +311,109 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const fetchComplaints = async () => {
+    if (!customer) return;
+    try {
+      const list = await ServerAPI.fetchCustomerComplaints(customer.id, customer.mobile);
+      setComplaints(list);
+    } catch (e) {
+      console.log('Error refreshing complaints:', e);
+    }
+  };
+
+  const createComplaint = async (params: {
+    orderId?: string;
+    deliveryDate?: string;
+    milkProductName?: string;
+    category: string;
+    issueSubtype?: string;
+    title?: string;
+    description: string;
+    priority?: string;
+  }): Promise<{ success: boolean; ticketNumber?: string; message?: string }> => {
+    if (!customer) return { success: false, message: 'Please log in first' };
+    setIsLoading(true);
+    const res = await ServerAPI.createCustomerComplaint({
+      customer,
+      ...params,
+    });
+    setIsLoading(false);
+
+    if (res.success) {
+      await fetchComplaints();
+      Alert.alert(
+        'Complaint Registered 🎉',
+        `Your reference ticket number is ${res.ticketNumber}.\n\nOur quality assurance team has received your report and will review it immediately.`
+      );
+      return res;
+    } else {
+      Alert.alert('Registration Failed', res.message || 'Could not register complaint.');
+      return res;
+    }
+  };
+
+  const pauseOrder = async (orderId: string): Promise<boolean> => {
+    if (!customer) return false;
+    setIsLoading(true);
+    const res = await ServerAPI.pauseCustomerOrder(orderId, customer.id);
+    setIsLoading(false);
+
+    if (res.success) {
+      setDeliveries(prev =>
+        prev.map(d => d.id === orderId ? { ...d, status: 'PAUSED' } : d)
+      );
+      Alert.alert('Order Paused ⏸️', 'This scheduled delivery has been placed on hold.');
+      return true;
+    } else {
+      Alert.alert('Error', res.message || 'Failed to pause order.');
+      return false;
+    }
+  };
+
+  const resumeOrder = async (orderId: string): Promise<boolean> => {
+    if (!customer) return false;
+    setIsLoading(true);
+    const res = await ServerAPI.resumeCustomerOrder(orderId, customer.id);
+    setIsLoading(false);
+
+    if (res.success) {
+      setDeliveries(prev =>
+        prev.map(d => d.id === orderId ? { ...d, status: 'SCHEDULED' } : d)
+      );
+      Alert.alert('Order Resumed ▶️', 'This delivery has been restored to scheduled.');
+      return true;
+    } else {
+      Alert.alert('Error', res.message || 'Failed to resume order.');
+      return false;
+    }
+  };
+
+  const toggleSubscriptionPause = async (isPaused: boolean, notes?: string): Promise<boolean> => {
+    if (!customer) return false;
+    setIsLoading(true);
+    const res = await ServerAPI.toggleCustomerSubscriptionPause(customer.id, isPaused, notes);
+    setIsLoading(false);
+
+    if (res.success) {
+      setCustomer({
+        ...customer,
+        is_paused: isPaused,
+        pause_notes: notes || undefined,
+      });
+      await refreshData();
+      Alert.alert(
+        isPaused ? 'Subscription On Hold ⏸️' : 'Subscription Resumed ▶️',
+        isPaused
+          ? 'Your recurring deliveries have been paused until you decide to resume.'
+          : 'Your daily milk deliveries have been resumed!'
+      );
+      return true;
+    } else {
+      Alert.alert('Update Failed', res.message || 'Could not update subscription status.');
+      return false;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -303,6 +426,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         payments,
         cancellations,
         deliveries,
+        complaints,
         assets,
         enterpriseSettings,
         deliveryStatus,
@@ -319,6 +443,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPasswordByMobile,
         processPayment,
         requestCancellation,
+        fetchComplaints,
+        createComplaint,
+        pauseOrder,
+        resumeOrder,
+        toggleSubscriptionPause,
       }}
     >
       {children}

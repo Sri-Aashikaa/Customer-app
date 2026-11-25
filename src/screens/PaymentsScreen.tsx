@@ -5,6 +5,7 @@ import {
   Text,
   TouchableOpacity,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { EmptyState } from '../components/EmptyState';
@@ -25,6 +26,18 @@ export const PaymentsScreen: React.FC = () => {
 
   const handlePayNow = async () => {
     if (cumulativeDeliveryAmount <= 0) return;
+    const upiId = (customer as any)?.enterprise_upi_id || 'sriaashikaa@upi';
+    const payeeName = 'Sri Aashikaa Milk Enterprises';
+    const amtStr = cumulativeDeliveryAmount.toFixed(2);
+    const txnRef = `TXN${Date.now()}`;
+    const note = `Milk Bill Settlement - ${customer.name || 'Customer'}`;
+    const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${amtStr}&cu=INR&tn=${encodeURIComponent(note)}&tr=${txnRef}`;
+
+    try {
+      await Linking.openURL(upiUrl);
+    } catch (e) {
+      console.log('Error opening UPI url:', e);
+    }
     await processPayment(cumulativeDeliveryAmount);
   };
 
@@ -96,26 +109,42 @@ export const PaymentsScreen: React.FC = () => {
         <Text style={styles.cardTitle}>Payment History</Text>
 
         {payments.length > 0 ? (
-          payments.map((p) => (
-            <View key={p.id} style={styles.historyItem}>
-              <View>
-                <Text style={styles.historyTitle}>
-                  {p.invoice_number} ({p.billing_period})
-                </Text>
-                <Text style={styles.historySub}>
-                  Method: {p.payment_method} • Date: {p.due_date}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.historyAmount,
-                  { color: p.status === 'PAID' ? colors.statusGreen : colors.statusAmber },
-                ]}
+          payments.map((p) => {
+            const rawInv = p.invoice_number || (p as any).reference_number || '';
+            const invDisplay = rawInv && rawInv !== 'INV-DUE'
+              ? (rawInv.startsWith('RCP-') ? 'INV-202610-' + rawInv.replace('RCP-', '') : rawInv)
+              : ('INV-' + p.id.slice(0, 8).toUpperCase());
+            const s3Url = (p as any).invoice_url || `https://eftixvhkmtujlbayrauk.supabase.co/storage/v1/object/public/invoices/${invDisplay}.pdf`;
+
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={styles.historyItem}
+                onPress={() => Linking.openURL(s3Url).catch(() => {})}
+                activeOpacity={0.7}
               >
-                ₹{p.total_amount.toFixed(2)}
-              </Text>
-            </View>
-          ))
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historyTitle}>
+                    {invDisplay} ({p.billing_period})
+                  </Text>
+                  <Text style={styles.historySub}>
+                    Method: {p.payment_method} • Date: {p.due_date}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.statusGreen, marginTop: 2, fontWeight: '600' }}>
+                    📄 Download Official S3 Invoice ➔
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.historyAmount,
+                    { color: p.status === 'PAID' ? colors.statusGreen : colors.statusAmber },
+                  ]}
+                >
+                  ₹{p.total_amount.toFixed(2)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })
         ) : (
           <EmptyState
             icon="💳"

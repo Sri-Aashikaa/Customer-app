@@ -11,8 +11,8 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: 'DASHBOARD', label: 'Home', icon: '🏠' },
-  { key: 'CANCEL', label: 'Cancel', icon: '🚫' },
-  { key: 'DEPOSIT', label: 'Assets', icon: '📦' },
+  { key: 'CANCEL', label: 'Pause', icon: '⏸️' },
+  { key: 'COMPLAINTS', label: 'Complaints', icon: '⚠️' },
   { key: 'PAYMENT', label: 'Payment', icon: '💳' },
   { key: 'REPORTS', label: 'Reports', icon: '📊' },
   { key: 'PROFILE', label: 'Profile', icon: '👤' },

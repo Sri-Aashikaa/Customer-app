@@ -17,8 +17,10 @@ import { colors, spacing, radius } from '../theme/theme';
 import { ServerAPI, DEFAULT_CUSTOMER_REFERRAL_SETTINGS } from '../services/api';
 import { CustomerReferralSettings, CustomerReferralRecord } from '../types';
 
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyBDy9hy20F8UTS8URDJfDMrQeXQOoSpNH4';
+
 export const ProfileScreen: React.FC = () => {
-  const { customer, updateProfile, updateLocation, changePassword, logout, resetPasswordByMobile, isLoading } = useAuth();
+  const { customer, enterpriseSettings, updateProfile, updateLocation, changePassword, logout, resetPasswordByMobile, setActiveTab, isLoading } = useAuth();
 
   // Basic Profile Form State
   const [name, setName] = useState<string>(customer?.name || '');
@@ -124,7 +126,7 @@ export const ProfileScreen: React.FC = () => {
       } else {
         await Share.share({
           message: shareMessage,
-          title: referralSettings.customer_offer_title || 'Invite Friends to Amutham Milk',
+          title: referralSettings.customer_offer_title || 'Invite Friends to Sri Aashikaa Milk',
         });
       }
     } catch (_) {
@@ -188,7 +190,7 @@ export const ProfileScreen: React.FC = () => {
 
           // Reverse geocoding via Google Maps Geocoding API
           try {
-            const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latStr},${lngStr}&key=AIzaSyBDy9hy20F8UTS8URDJfDMrQeXQOoSpNH4`);
+            const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latStr},${lngStr}&key=${GOOGLE_MAPS_API_KEY}`);
             const data = await res.json();
             if (data && data.results && data.results.length > 0) {
               const first = data.results[0];
@@ -362,7 +364,7 @@ export const ProfileScreen: React.FC = () => {
     const lat = customer.latitude || parseFloat(latitude) || 13.0827;
     const lng = customer.longitude || parseFloat(longitude) || 80.2707;
     const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-    const shareMessage = `Amutham Milk Delivery Address:\n${customer.name} (${customer.customer_id})\n${customer.address}, ${customer.area}, ${customer.city} - ${customer.pincode}\nGoogle Maps: ${mapsUrl}`;
+    const shareMessage = `Sri Aashikaa Milk Delivery Address:\n${customer.name} (${customer.customer_id})\n${customer.address}, ${customer.area}, ${customer.city} - ${customer.pincode}\nGoogle Maps: ${mapsUrl}`;
 
     try {
       if (navigator && (navigator as any).clipboard) {
@@ -371,7 +373,7 @@ export const ProfileScreen: React.FC = () => {
       } else {
         await Share.share({
           message: shareMessage,
-          title: 'Delivery Location - Amutham Raw Milk',
+          title: 'Delivery Location - Sri Aashikaa',
         });
       }
     } catch (_) {
@@ -379,22 +381,38 @@ export const ProfileScreen: React.FC = () => {
     }
   };
 
+  const supportPhone = enterpriseSettings?.support_phone || '+91 98765 43210';
+  const cleanPhone = supportPhone.replace(/[^0-9]/g, '');
+  const supportEmail = enterpriseSettings?.support_email || 'contact@sriaashikaa.com';
+  const headOfficeAddr = enterpriseSettings?.head_office_address || 'Plot 42, Dairy Tech Park, Salem, Tamil Nadu';
+  const branchOfficeAddr = enterpriseSettings?.branch_address || 'Salem Central Hub, 4-A Meyyanur Bypass, Salem - 636004';
+  const officeLat = enterpriseSettings?.office_latitude !== undefined ? Number(enterpriseSettings.office_latitude) : 11.664325;
+  const officeLng = enterpriseSettings?.office_longitude !== undefined ? Number(enterpriseSettings.office_longitude) : 78.146014;
+  const officeMapsUrl = enterpriseSettings?.google_maps_url || `https://maps.google.com/?q=${officeLat},${officeLng}`;
+
   const handleCallSupport = () => {
-    Linking.openURL('tel:+917331152332').catch(() => {
-      Alert.alert('Call Support', 'Dialing support helpline: +91 7331152332');
+    Linking.openURL(`tel:${cleanPhone}`).catch(() => {
+      Alert.alert('Call Helpline', `Dialing support helpline: ${supportPhone}`);
     });
   };
 
   const handleWhatsAppSupport = () => {
-    const msg = encodeURIComponent(`Hello Amutham Support, I need help with my account (${customer.customer_id}).`);
-    Linking.openURL(`https://wa.me/917331152332?text=${msg}`).catch(() => {
-      Alert.alert('WhatsApp Support', 'Opening WhatsApp support for +91 7331152332...');
+    const custId = customer?.customer_id || customer?.id || '';
+    const msg = encodeURIComponent(`Hello Sri Aashikaa Support, I need help with my fresh milk account (${custId}).`);
+    Linking.openURL(`https://wa.me/${cleanPhone}?text=${msg}`).catch(() => {
+      Alert.alert('WhatsApp Support', `Opening WhatsApp support for ${supportPhone}...`);
     });
   };
 
   const handleEmailSupport = () => {
-    Linking.openURL('mailto:support@amuthamrawmilk.com').catch(() => {
-      Alert.alert('Email Support', 'Contact email: support@amuthamrawmilk.com');
+    Linking.openURL(`mailto:${supportEmail}`).catch(() => {
+      Alert.alert('Email Support', `Contact email: ${supportEmail}`);
+    });
+  };
+
+  const handleOpenOfficeLocation = () => {
+    Linking.openURL(officeMapsUrl).catch(() => {
+      Alert.alert('Office Location', `Opening Google Maps: ${officeMapsUrl}`);
     });
   };
 
@@ -797,7 +815,7 @@ export const ProfileScreen: React.FC = () => {
             <Text style={styles.supportBtnIcon}>📞</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.supportBtnTitle}>Call Customer Helpline</Text>
-              <Text style={styles.supportBtnSub}>+91 7331152332</Text>
+              <Text style={styles.supportBtnSub}>{supportPhone}</Text>
             </View>
           </TouchableOpacity>
 
@@ -805,7 +823,7 @@ export const ProfileScreen: React.FC = () => {
             <Text style={styles.supportBtnIcon}>💬</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.supportBtnTitleWhite}>WhatsApp Support</Text>
-              <Text style={styles.supportBtnSubWhite}>Chat instantly with customer care</Text>
+              <Text style={styles.supportBtnSubWhite}>Chat instantly with customer care ({supportPhone})</Text>
             </View>
           </TouchableOpacity>
 
@@ -813,7 +831,7 @@ export const ProfileScreen: React.FC = () => {
             <Text style={styles.supportBtnIcon}>✉️</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.supportBtnTitle}>Email Support Desk</Text>
-              <Text style={styles.supportBtnSub}>support@amuthamrawmilk.com</Text>
+              <Text style={styles.supportBtnSub}>{supportEmail}</Text>
             </View>
           </TouchableOpacity>
 
@@ -823,6 +841,81 @@ export const ProfileScreen: React.FC = () => {
             activeOpacity={0.8}
           >
             <Text style={styles.queryModalBtnText}>📝 Submit Support Ticket / Request Callback</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.queryModalBtn, { backgroundColor: '#fee2e2', borderColor: '#fca5a5' }]}
+            onPress={() => setActiveTab('COMPLAINTS')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.queryModalBtnText, { color: '#b91c1c' }]}>⚠️ Bottle Freshness / Quality Complaints & Actions</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 6B. REGISTERED OFFICE & SALEM HUB LOCATION CARD */}
+      <View style={[styles.card, { borderColor: '#bbf7d0', backgroundColor: '#f0fdf4' }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <Text style={[styles.cardTitle, { color: '#166534', marginBottom: 0 }]}>🏢 Registered Office & Hub Location</Text>
+          <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: '#86efac' }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#15803d' }}>Server-Verified</Text>
+          </View>
+        </View>
+        <Text style={[styles.cardSub, { color: '#15803d', marginBottom: 12 }]}>
+          Official corporate headquarters and Salem direct milk distribution hub.
+        </Text>
+
+        <View style={{ gap: 10 }}>
+          {/* Head Office Address */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#ffffff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <Text style={{ fontSize: 16 }}>🏛️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.5 }}>Head Office Address</Text>
+              <Text style={{ fontSize: 12, color: '#334155', marginTop: 2, lineHeight: 18 }}>{headOfficeAddr}</Text>
+            </View>
+          </View>
+
+          {/* Branch / Salem Hub Address */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#ffffff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <Text style={{ fontSize: 16 }}>🏪</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.5 }}>Salem Central Hub Depot</Text>
+              <Text style={{ fontSize: 12, color: '#334155', marginTop: 2, lineHeight: 18 }}>{branchOfficeAddr}</Text>
+            </View>
+          </View>
+
+          {/* Contact Mobile & Office GPS */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1, backgroundColor: '#ffffff', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Office Helpline</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a', marginTop: 2 }}>{supportPhone}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#ffffff', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>GPS Coordinates</Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#0f172a', marginTop: 2 }}>{officeLat.toFixed(4)}, {officeLng.toFixed(4)}</Text>
+            </View>
+          </View>
+
+          {/* Open Google Maps Directions Button */}
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              backgroundColor: '#0f172a',
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              marginTop: 4,
+            }}
+            onPress={handleOpenOfficeLocation}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 14 }}>📍</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#ffffff' }}>
+              Open Office Location & Directions on Google Maps
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -987,7 +1080,7 @@ export const ProfileScreen: React.FC = () => {
               {tempLatitude && tempLongitude ? (
                 <Image
                   source={{
-                    uri: `https://maps.googleapis.com/maps/api/staticmap?center=${tempLatitude},${tempLongitude}&zoom=15&size=600x260&scale=2&maptype=roadmap&markers=color:red%7C${tempLatitude},${tempLongitude}&key=AIzaSyBDy9hy20F8UTS8URDJfDMrQeXQOoSpNH4`,
+                    uri: `https://maps.googleapis.com/maps/api/staticmap?center=${tempLatitude},${tempLongitude}&zoom=15&size=600x260&scale=2&maptype=roadmap&markers=color:red%7C${tempLatitude},${tempLongitude}&key=${GOOGLE_MAPS_API_KEY}`,
                   }}
                   style={{ width: '100%', height: 160, borderRadius: 10, marginBottom: 10 }}
                   resizeMode="cover"

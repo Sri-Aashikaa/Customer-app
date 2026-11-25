@@ -10,6 +10,7 @@ import { CancellationScreen } from './src/screens/CancellationScreen';
 import { AssetsScreen } from './src/screens/AssetsScreen';
 import { PaymentsScreen } from './src/screens/PaymentsScreen';
 import { ReportsScreen } from './src/screens/ReportsScreen';
+import { ComplaintsScreen } from './src/screens/ComplaintsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { colors, spacing } from './src/theme/theme';
 
@@ -32,6 +33,7 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'DEPOSIT' && <AssetsScreen />}
         {activeTab === 'PAYMENT' && <PaymentsScreen />}
         {activeTab === 'REPORTS' && <ReportsScreen />}
+        {activeTab === 'COMPLAINTS' && <ComplaintsScreen />}
         {activeTab === 'PROFILE' && <ProfileScreen />}
       </ScrollView>
 
