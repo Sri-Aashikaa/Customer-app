@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 const _bgCard = Color(0xFFF8FAFC);
@@ -58,7 +59,7 @@ class _ReportTabState extends State<ReportTab> {
   }
 
   String _formatDeliveredTime(Map<String, dynamic> info) {
-    if (info['status'] == 'PAUSED') return 'N/A (Paused)';
+    if (info['status'] == 'PAUSED') return 'rep_na_paused'.tr;
 
     // 1. Try explicit delivered_at timestamp
     final rawDeliveredAt = info['delivered_at']?.toString();
@@ -184,7 +185,7 @@ class _ReportTabState extends State<ReportTab> {
     );
 
     if (cancelMatch.isNotEmpty) {
-      final reason = cancelMatch['reason']?.toString() ?? 'Paused upon customer request';
+      final reason = cancelMatch['reason']?.toString() ?? 'rep_reason_paused'.tr;
       return {
         'date': date,
         'date_str': dateStr,
@@ -218,7 +219,7 @@ class _ReportTabState extends State<ReportTab> {
       final amount = deliveryMatch['total_amount'] != null
           ? double.tryParse(deliveryMatch['total_amount'].toString()) ?? (qty * _ratePerLiter)
           : (qty * _ratePerLiter);
-      final notes = deliveryMatch['notes']?.toString() ?? 'Delivered to designated drop location';
+      final notes = deliveryMatch['notes']?.toString() ?? 'rep_reason_delivered'.tr;
       final rowTiming = (deliveryMatch['delivery_timing'] ?? deliveryMatch['timing_slot'] ?? timingSlot).toString();
 
       return {
@@ -248,7 +249,7 @@ class _ReportTabState extends State<ReportTab> {
         'status_label': 'SCHEDULED',
         'quantity': defaultQty,
         'amount': defaultQty * _ratePerLiter,
-        'reason': 'Scheduled routine delivery drop',
+        'reason': 'rep_reason_scheduled'.tr,
         'timing_slot': timingSlot,
         'delivery_timing': timingSlot,
         'delivery_time': null,
@@ -267,7 +268,7 @@ class _ReportTabState extends State<ReportTab> {
       'status_label': 'DELIVERED',
       'quantity': defaultQty,
       'amount': defaultQty * _ratePerLiter,
-      'reason': isToday ? 'Delivered early morning' : 'Delivered as per active subscription plan',
+      'reason': isToday ? 'rep_reason_today'.tr : 'rep_reason_plan'.tr,
       'timing_slot': timingSlot,
       'delivery_timing': timingSlot,
       'delivery_time': null,
@@ -316,12 +317,12 @@ class _ReportTabState extends State<ReportTab> {
   }
 
   String _formatBottles(double liters) {
-    if (liters <= 0) return 'None';
-    if (liters == 0.5) return '1 × 0.5L Glass Bottle';
-    if (liters == 1.0) return '1 × 1.0L Glass Bottle';
-    if (liters == 1.5) return '1 × 1.0L + 1 × 0.5L Glass Bottles';
-    if (liters == 2.0) return '2 × 1.0L Glass Bottles';
-    return '${liters.toStringAsFixed(1)}L in Returnable Glass Bottles';
+    if (liters <= 0) return 'rep_bottle_none'.tr;
+    if (liters == 0.5) return 'rep_bottle_05'.tr;
+    if (liters == 1.0) return 'rep_bottle_1'.tr;
+    if (liters == 1.5) return 'rep_bottle_15'.tr;
+    if (liters == 2.0) return 'rep_bottle_2'.tr;
+    return tr('rep_bottle_other', {'qty': liters.toStringAsFixed(1)});
   }
 
   // ── Date Pickers ──────────────────────────────────────────────────────────
@@ -385,7 +386,7 @@ class _ReportTabState extends State<ReportTab> {
 
   void _showDeliverySlipModal(Map<String, dynamic> info) {
     final date = info['date'] as DateTime;
-    final dateStr = DateFormat('EEEE, dd MMMM yyyy').format(date);
+    final dateStr = LanguageService.formatFullDayDate(date);
     final status = info['status'] as String;
     final isDelivered = status == 'DELIVERED';
     final isPaused = status == 'PAUSED';
@@ -454,8 +455,8 @@ class _ReportTabState extends State<ReportTab> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Delivery Inspection Slip',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text('rep_slip_title'.tr,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                             Text(dateStr, style: const TextStyle(fontSize: 11, color: Colors.grey)),
                           ],
                         ),
@@ -492,7 +493,9 @@ class _ReportTabState extends State<ReportTab> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Status: ${info['status_label']}',
+                        tr('rep_status_prefix', {
+                          'status': LanguageService.statusLabel(info['status_label']),
+                        }),
                         style: TextStyle(
                           color: isDelivered
                               ? _green
@@ -505,10 +508,10 @@ class _ReportTabState extends State<ReportTab> {
                       ),
                       Text(
                         isDelivered
-                            ? '✅ Verified'
+                            ? 'rep_verified_badge'.tr
                             : isPaused
-                                ? '⏸️ Paused'
-                                : '⏰ Scheduled',
+                                ? 'rep_paused_badge'.tr
+                                : 'rep_scheduled_badge'.tr,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -526,15 +529,27 @@ class _ReportTabState extends State<ReportTab> {
                   ),
                   child: Column(
                     children: [
-                      _slipRow('Product', _pricingConfig?['milk_product_name'] ?? 'Raw Fresh Farm Cow Milk'),
-                      _slipRow('Quantity', isPaused ? '0.0 Liters (Paused)' : '${qty.toStringAsFixed(1)} Liters'),
-                      _slipRow('Bottle Packing', _formatBottles(qty)),
-                      _slipRow('Rate per Liter', '₹${_ratePerLiter.toStringAsFixed(2)} / Liter'),
-                      _slipRow('Delivery Slot', _formatSlotOnly(info['timing_slot'].toString())),
+                      _slipRow('rep_slip_product'.tr,
+                          _pricingConfig?['milk_product_name'] ?? 'rep_default_milk'.tr),
+                      _slipRow(
+                          'rep_slip_qty'.tr,
+                          isPaused
+                              ? 'rep_qty_paused'.tr
+                              : tr('tim_liters_val', {'qty': qty.toStringAsFixed(1)})),
+                      _slipRow('rep_slip_packing'.tr, _formatBottles(qty)),
+                      _slipRow('rep_slip_rate'.tr,
+                          tr('rep_slip_rate_val', {'rate': _ratePerLiter.toStringAsFixed(2)})),
+                      _slipRow(
+                          'rep_slip_slot'.tr,
+                          LanguageService.slotLabel(
+                              _formatSlotOnly(info['timing_slot'].toString()))),
                       if (!isPaused)
-                        _slipRow(isDelivered ? 'Delivered Time' : 'Scheduled Time', _formatDeliveredTime(info)),
+                        _slipRow(
+                            isDelivered ? 'rep_slip_del_time'.tr : 'rep_slip_sch_time'.tr,
+                            _formatDeliveredTime(info)),
                       const Divider(height: 16),
-                      _slipRow('Day Total Amount', '₹${amt.toStringAsFixed(2)}', isTotal: true),
+                      _slipRow('rep_slip_day_total'.tr, '₹${amt.toStringAsFixed(2)}',
+                          isTotal: true),
                     ],
                   ),
                 ),
@@ -551,8 +566,8 @@ class _ReportTabState extends State<ReportTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Delivery & Logistics Details',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                      Text('rep_logistics_title'.tr,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
                       const SizedBox(height: 8),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -575,8 +590,11 @@ class _ReportTabState extends State<ReportTab> {
                           Expanded(
                             child: Text(
                               _deliveryPartner != null && _deliveryPartner!['name'] != null
-                                  ? 'Delivery Partner: ${_deliveryPartner!['name']} (${_deliveryPartner!['mobile'] ?? 'Assigned'})'
-                                  : 'Assigned Partner: Regular Zone Delivery Route',
+                                  ? tr('rep_partner_assigned', {
+                                      'name': '${_deliveryPartner!['name']}',
+                                      'mobile': '${_deliveryPartner!['mobile'] ?? ''}',
+                                    })
+                                  : 'rep_partner_route'.tr,
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                             ),
                           ),
@@ -595,7 +613,7 @@ class _ReportTabState extends State<ReportTab> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Note: ${info['reason']}',
+                                tr('rep_note_prefix', {'reason': '${info['reason']}'}),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isPaused ? Colors.orange.shade900 : Colors.grey.shade700,
@@ -621,7 +639,7 @@ class _ReportTabState extends State<ReportTab> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Close Slip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    child: Text('rep_close_slip'.tr, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
@@ -691,13 +709,13 @@ class _ReportTabState extends State<ReportTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.assessment_outlined, color: _green, size: 22),
-                              SizedBox(width: 8),
+                              const Icon(Icons.assessment_outlined, color: _green, size: 22),
+                              const SizedBox(width: 8),
                               Text(
-                                'Delivery & Consumption Reports',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                'rep_header_title'.tr,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                             ],
                           ),
@@ -707,7 +725,7 @@ class _ReportTabState extends State<ReportTab> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Inspect daily milk delivery, pause logs, bottle count, and charges date-by-date.',
+                        'rep_header_sub'.tr,
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                       ),
                       const SizedBox(height: 14),
@@ -717,9 +735,9 @@ class _ReportTabState extends State<ReportTab> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            _periodChip('this_week', 'This Week', Icons.calendar_view_week),
-                            _periodChip('this_month', 'This Month', Icons.calendar_month),
-                            _periodChip('last_30_days', 'Last 30 Days', Icons.history),
+                            _periodChip('this_week', 'rep_this_week'.tr, Icons.calendar_view_week),
+                            _periodChip('this_month', 'rep_this_month'.tr, Icons.calendar_month),
+                            _periodChip('last_30_days', 'rep_last_30_days'.tr, Icons.history),
                             GestureDetector(
                               onTap: _pickCustomRange,
                               child: AnimatedContainer(
@@ -742,8 +760,8 @@ class _ReportTabState extends State<ReportTab> {
                                     const SizedBox(width: 6),
                                     Text(
                                       _period == 'custom'
-                                          ? '${DateFormat('dd MMM').format(_startDate)} - ${DateFormat('dd MMM').format(_endDate)}'
-                                          : 'Custom Range 📅',
+                                          ? '${_startDate.day.toString().padLeft(2, '0')} ${LanguageService.monthShortLabel(_startDate.month)} - ${_endDate.day.toString().padLeft(2, '0')} ${LanguageService.monthShortLabel(_endDate.month)}'
+                                          : 'rep_custom_range'.tr,
                                       style: TextStyle(
                                         color: _period == 'custom' ? Colors.white : Colors.grey.shade700,
                                         fontWeight: FontWeight.bold,
@@ -779,7 +797,7 @@ class _ReportTabState extends State<ReportTab> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                '${_periodLabel(_period)} Overview',
+                                tr('rep_overview_suffix', {'period': _periodLabel(_period)}),
                                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                               Container(
@@ -790,7 +808,7 @@ class _ReportTabState extends State<ReportTab> {
                                   border: Border.all(color: _green.withValues(alpha: 0.2)),
                                 ),
                                 child: Text(
-                                  '${DateFormat('dd MMM').format(_startDate)} - ${DateFormat('dd MMM yyyy').format(_endDate)}',
+                                  '${_startDate.day.toString().padLeft(2, '0')} ${LanguageService.monthShortLabel(_startDate.month)} - ${LanguageService.formatShortDate(_endDate)}',
                                   style: const TextStyle(fontSize: 10, color: _green, fontWeight: FontWeight.bold),
                                 ),
                               ),
@@ -800,13 +818,13 @@ class _ReportTabState extends State<ReportTab> {
                           if (isWide)
                             Row(
                               children: [
-                                Expanded(child: _kpiCard('Delivered Days', '${stats['delivered_days']} Days', Icons.local_shipping_outlined, _green)),
+                                Expanded(child: _kpiCard('rep_kpi_delivered_days'.tr, tr('days_unit_count', {'count': '${stats['delivered_days']}'}), Icons.local_shipping_outlined, _green)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _kpiCard('Milk Consumed', '${(stats['liters'] as double).toStringAsFixed(1)} L', Icons.water_drop_outlined, Colors.blue)),
+                                Expanded(child: _kpiCard('rep_kpi_milk_consumed'.tr, '${(stats['liters'] as double).toStringAsFixed(1)} L', Icons.water_drop_outlined, Colors.blue)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _kpiCard('Period Bill', '₹${(stats['amount'] as double).toStringAsFixed(0)}', Icons.currency_rupee, Colors.purple)),
+                                Expanded(child: _kpiCard('rep_kpi_period_bill'.tr, '₹${(stats['amount'] as double).toStringAsFixed(0)}', Icons.currency_rupee, Colors.purple)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _kpiCard('Paused Days', '${stats['paused_days']} Days', Icons.pause_circle_outline, Colors.orange)),
+                                Expanded(child: _kpiCard('rep_kpi_paused_days'.tr, tr('days_unit_count', {'count': '${stats['paused_days']}'}), Icons.pause_circle_outline, Colors.orange)),
                               ],
                             )
                           else
@@ -818,10 +836,10 @@ class _ReportTabState extends State<ReportTab> {
                               physics: const NeverScrollableScrollPhysics(),
                               mainAxisExtent: 72,
                               children: [
-                                _kpiCard('Delivered Days', '${stats['delivered_days']} Days', Icons.local_shipping_outlined, _green),
-                                _kpiCard('Milk Consumed', '${(stats['liters'] as double).toStringAsFixed(1)} L', Icons.water_drop_outlined, Colors.blue),
-                                _kpiCard('Period Bill', '₹${(stats['amount'] as double).toStringAsFixed(0)}', Icons.currency_rupee, Colors.purple),
-                                _kpiCard('Paused Days', '${stats['paused_days']} Days', Icons.pause_circle_outline, Colors.orange),
+                                _kpiCard('rep_kpi_delivered_days'.tr, tr('days_unit_count', {'count': '${stats['delivered_days']}'}), Icons.local_shipping_outlined, _green),
+                                _kpiCard('rep_kpi_milk_consumed'.tr, '${(stats['liters'] as double).toStringAsFixed(1)} L', Icons.water_drop_outlined, Colors.blue),
+                                _kpiCard('rep_kpi_period_bill'.tr, '₹${(stats['amount'] as double).toStringAsFixed(0)}', Icons.currency_rupee, Colors.purple),
+                                _kpiCard('rep_kpi_paused_days'.tr, tr('days_unit_count', {'count': '${stats['paused_days']}'}), Icons.pause_circle_outline, Colors.orange),
                               ],
                             ),
                         ],
@@ -848,13 +866,13 @@ class _ReportTabState extends State<ReportTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.search, color: _green, size: 20),
-                              SizedBox(width: 6),
+                              const Icon(Icons.search, color: _green, size: 20),
+                              const SizedBox(width: 6),
                               Text(
-                                'Date-Wise Delivery Inspector',
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                'rep_inspector_title'.tr,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                             ],
                           ),
@@ -868,12 +886,12 @@ class _ReportTabState extends State<ReportTab> {
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: _green.withValues(alpha: 0.3)),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.calendar_month, size: 14, color: _green),
-                                  SizedBox(width: 4),
-                                  Text('Pick Date', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green)),
+                                  const Icon(Icons.calendar_month, size: 14, color: _green),
+                                  const SizedBox(width: 4),
+                                  Text('rep_pick_date'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green)),
                                 ],
                               ),
                             ),
@@ -881,20 +899,20 @@ class _ReportTabState extends State<ReportTab> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Select any specific date to verify delivery arrival, status, bottles & cost.',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      Text(
+                        'rep_inspector_sub'.tr,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       const SizedBox(height: 12),
 
                       // Quick Jump Date Chips
                       Row(
                         children: [
-                          _quickDateChip('Yesterday', DateTime.now().subtract(const Duration(days: 1))),
+                          _quickDateChip('rep_yesterday'.tr, DateTime.now().subtract(const Duration(days: 1))),
                           const SizedBox(width: 6),
-                          _quickDateChip('Today', DateTime.now()),
+                          _quickDateChip('rep_today'.tr, DateTime.now()),
                           const SizedBox(width: 6),
-                          _quickDateChip('Tomorrow', DateTime.now().add(const Duration(days: 1))),
+                          _quickDateChip('rep_tomorrow'.tr, DateTime.now().add(const Duration(days: 1))),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -912,7 +930,7 @@ class _ReportTabState extends State<ReportTab> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.chevron_left, color: Color(0xFF0F172A)),
-                              tooltip: 'Previous Day',
+                              tooltip: 'rep_prev_day'.tr,
                               onPressed: () {
                                 setState(() {
                                   _inspectedDate = _inspectedDate.subtract(const Duration(days: 1));
@@ -923,7 +941,7 @@ class _ReportTabState extends State<ReportTab> {
                               child: Column(
                                 children: [
                                   Text(
-                                    DateFormat('EEEE, dd MMMM yyyy').format(_inspectedDate),
+                                    LanguageService.formatFullDayDate(_inspectedDate),
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                                   ),
                                   Text(
@@ -935,7 +953,7 @@ class _ReportTabState extends State<ReportTab> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.chevron_right, color: Color(0xFF0F172A)),
-                              tooltip: 'Next Day',
+                              tooltip: 'rep_next_day'.tr,
                               onPressed: () {
                                 setState(() {
                                   _inspectedDate = _inspectedDate.add(const Duration(days: 1));
@@ -971,8 +989,8 @@ class _ReportTabState extends State<ReportTab> {
                             children: [
                               const Icon(Icons.view_list_rounded, color: _green, size: 20),
                               const SizedBox(width: 8),
-                              const Text('Daily Delivery Ledger',
-                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                              Text('rep_ledger_title'.tr,
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
                               const SizedBox(width: 6),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -980,7 +998,7 @@ class _ReportTabState extends State<ReportTab> {
                                   color: const Color(0xFFF1F5F9),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: Text('${filteredDates.length} days',
+                                child: Text(tr('days_unit_count', {'count': '${filteredDates.length}'}),
                                     style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
                               ),
                             ],
@@ -988,20 +1006,20 @@ class _ReportTabState extends State<ReportTab> {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      const Text(
-                        'Complete day-wise breakdown. Tap any day row to view official slip.',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      Text(
+                        'rep_ledger_sub'.tr,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       const SizedBox(height: 12),
 
                       // Filter chips for ledger
                       Row(
                         children: [
-                          _filterLedgerChip('all', 'All Days (${allDates.length})'),
+                          _filterLedgerChip('all', tr('rep_filter_all', {'count': '${allDates.length}'})),
                           const SizedBox(width: 6),
-                          _filterLedgerChip('delivered', 'Delivered (${stats['delivered_days']})'),
+                          _filterLedgerChip('delivered', tr('rep_filter_delivered', {'count': '${stats['delivered_days']}'})),
                           const SizedBox(width: 6),
-                          _filterLedgerChip('paused', 'Paused (${stats['paused_days']})'),
+                          _filterLedgerChip('paused', tr('rep_filter_paused', {'count': '${stats['paused_days']}'})),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -1016,12 +1034,12 @@ class _ReportTabState extends State<ReportTab> {
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: _borderCol),
                           ),
-                          child: const Column(
+                          child: Column(
                             children: [
-                              Icon(Icons.event_busy, color: Colors.grey, size: 32),
-                              SizedBox(height: 8),
-                              Text('No delivery records match this filter for this date range.',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              const Icon(Icons.event_busy, color: Colors.grey, size: 32),
+                              const SizedBox(height: 8),
+                              Text('rep_no_records'.tr,
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
                             ],
                           ),
                         )
@@ -1237,7 +1255,7 @@ class _ReportTabState extends State<ReportTab> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      info['status_label'],
+                      LanguageService.statusLabel(info['status_label']),
                       style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11),
                     ),
                   ],
@@ -1253,9 +1271,9 @@ class _ReportTabState extends State<ReportTab> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: _borderCol),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Text('View Slip ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                      Text('rep_view_slip'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
                     ],
                   ),
                 ),
@@ -1270,12 +1288,14 @@ class _ReportTabState extends State<ReportTab> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                isPaused ? '0.0 L' : '${qty.toStringAsFixed(1)} Liters',
+                isPaused ? '0.0 L' : tr('tim_liters_val', {'qty': qty.toStringAsFixed(1)}),
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
               ),
               const SizedBox(width: 10),
               Text(
-                isPaused ? '(Delivery Paused)' : '•  ₹${amt.toStringAsFixed(0)} (@ ₹${_ratePerLiter.toStringAsFixed(0)}/L)',
+                isPaused
+                    ? 'rep_delivery_paused'.tr
+                    : '•  ₹${amt.toStringAsFixed(0)} (@ ₹${_ratePerLiter.toStringAsFixed(0)}/L)',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600),
               ),
             ],
@@ -1297,7 +1317,7 @@ class _ReportTabState extends State<ReportTab> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Pack: ${_formatBottles(qty)}',
+                        tr('rep_pack_prefix', {'pack': _formatBottles(qty)}),
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                       ),
                     ),
@@ -1310,7 +1330,10 @@ class _ReportTabState extends State<ReportTab> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Slot: ${_formatSlotOnly(info['timing_slot'].toString())}',
+                        tr('rep_slot_prefix', {
+                          'slot': LanguageService.slotLabel(
+                              _formatSlotOnly(info['timing_slot'].toString())),
+                        }),
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
                       ),
                     ),
@@ -1324,7 +1347,11 @@ class _ReportTabState extends State<ReportTab> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '${isDelivered ? "Delivered" : "Scheduled"} Time: ${_formatDeliveredTime(info)}',
+                          tr(
+                              isDelivered
+                                  ? 'rep_time_delivered'
+                                  : 'rep_time_scheduled',
+                              {'time': _formatDeliveredTime(info)}),
                           style: const TextStyle(fontSize: 11, color: Color(0xFF334155)),
                         ),
                       ),
@@ -1406,7 +1433,7 @@ class _ReportTabState extends State<ReportTab> {
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
                   ),
                   Text(
-                    DateFormat('MMM').format(date).toUpperCase(),
+                    LanguageService.monthShortLabel(date.month).toUpperCase(),
                     style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Colors.grey),
                   ),
                 ],
@@ -1422,7 +1449,7 @@ class _ReportTabState extends State<ReportTab> {
                   Row(
                     children: [
                       Text(
-                        DateFormat('EEEE').format(date),
+                        LanguageService.dayFullLabel(date.weekday),
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                       const SizedBox(width: 6),
@@ -1433,7 +1460,7 @@ class _ReportTabState extends State<ReportTab> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          info['status_label'],
+                          LanguageService.statusLabel(info['status_label']),
                           style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color),
                         ),
                       ),
@@ -1442,8 +1469,12 @@ class _ReportTabState extends State<ReportTab> {
                   const SizedBox(height: 2),
                   Text(
                     isPaused
-                        ? 'Paused: ${info['reason']}'
-                        : 'Raw Farm Milk • Slot: ${_formatSlotOnly(info['timing_slot'].toString())} • ${_formatDeliveredTime(info)}',
+                        ? tr('rep_paused_reason', {'reason': '${info['reason']}'})
+                        : tr('rep_ledger_sub_row', {
+                            'slot': LanguageService.slotLabel(
+                                _formatSlotOnly(info['timing_slot'].toString())),
+                            'time': _formatDeliveredTime(info),
+                          }),
                     style: TextStyle(
                       fontSize: 10,
                       color: isPaused ? Colors.orange.shade800 : Colors.grey.shade600,
@@ -1488,15 +1519,15 @@ class _ReportTabState extends State<ReportTab> {
   String _periodLabel(String p) {
     switch (p) {
       case 'this_week':
-        return 'This Week';
+        return 'rep_this_week'.tr;
       case 'this_month':
-        return 'This Month';
+        return 'rep_this_month'.tr;
       case 'last_30_days':
-        return 'Last 30 Days';
+        return 'rep_last_30_days'.tr;
       case 'custom':
-        return 'Selected Range';
+        return 'rep_selected_range'.tr;
       default:
-        return 'Monthly';
+        return 'rep_monthly_fallback'.tr;
     }
   }
 
@@ -1506,10 +1537,10 @@ class _ReportTabState extends State<ReportTab> {
     final target = DateTime(d.year, d.month, d.day);
 
     final diff = target.difference(today).inDays;
-    if (diff == 0) return 'Today • Active Delivery';
-    if (diff == -1) return 'Yesterday • Completed Drop';
-    if (diff == 1) return 'Tomorrow • Next Planned Drop';
-    if (diff > 1) return '$diff Days Ahead • Scheduled';
-    return '${diff.abs()} Days Ago • Historical Log';
+    if (diff == 0) return 'rep_tag_today'.tr;
+    if (diff == -1) return 'rep_tag_yesterday'.tr;
+    if (diff == 1) return 'rep_tag_tomorrow'.tr;
+    if (diff > 1) return tr('rep_tag_ahead', {'days': '$diff'});
+    return tr('rep_tag_ago', {'days': '${diff.abs()}'});
   }
 }

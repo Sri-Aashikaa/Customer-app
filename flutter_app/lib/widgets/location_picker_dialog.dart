@@ -5,9 +5,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/language_service.dart';
 
 const kGreen = Color(0xFF059669);
-const String kGoogleMapsApiKey = 'AIzaSyBDy9hy20F8UTS8URDJfDMrQeXQOoSpNH4';
+const String kGoogleMapsApiKey = String.fromEnvironment(
+  'GOOGLE_MAPS_API_KEY',
+  defaultValue: 'AIzaSyBDy9hy20F8UTS8URDJfDMrQeXQOoSpNH4',
+);
 
 class LocationPickerDialog extends StatefulWidget {
   final double initialLat;
@@ -80,7 +84,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
   bool _isLocating = false;
   bool _isGeocoding = false;
   bool _isSearching = false;
-  String _statusMessage = 'Tap anywhere on Google Maps to pin your delivery address';
+  String? _statusMessage;
 
   final List<Map<String, dynamic>> _quickLocations = [
     {'name': 'Anna Nagar', 'lat': 13.0878, 'lng': 80.2170, 'pincode': '600040'},
@@ -145,15 +149,15 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         final newPoint = LatLng(pos.latitude, pos.longitude);
         setState(() {
           _currentLocation = newPoint;
-          _statusMessage = 'GPS Position detected';
+          _statusMessage = 'loc_gps_detected'.tr;
         });
         _mapController.move(newPoint, 17.0);
         await _reverseGeocode(newPoint);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location permission denied. Please pick your spot on the map.'),
+            SnackBar(
+              content: Text('loc_perm_denied'.tr),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -163,7 +167,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not fetch GPS: $e'),
+            content: Text(tr('loc_gps_error', {'err': '$e'})),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -211,7 +215,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('No location found for "$q". Try another landmark or area name.'),
+            content: Text(tr('loc_not_found', {'query': q})),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -219,7 +223,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Search error: $e'), behavior: SnackBarBehavior.floating),
+          SnackBar(content: Text(tr('loc_search_error', {'err': '$e'})), behavior: SnackBarBehavior.floating),
         );
       }
     } finally {
@@ -306,7 +310,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       final url = Uri.parse(
         'https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.latitude}&lon=${point.longitude}&zoom=18&addressdetails=1',
       );
-      final resp = await http.get(url, headers: {'User-Agent': 'AmudhamRawMilkCustomerApp/1.0'});
+      final resp = await http.get(url, headers: {'User-Agent': 'SriAashikaaRawMilkCustomerApp/1.0'});
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body) as Map<String, dynamic>;
         final address = data['address'] as Map<String, dynamic>?;
@@ -335,7 +339,10 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
   void _onMapTapped(TapPosition tapPos, LatLng point) {
     setState(() {
       _currentLocation = point;
-      _statusMessage = 'Pinned: ${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}';
+      _statusMessage = tr('loc_pinned_coords', {
+        'lat': point.latitude.toStringAsFixed(4),
+        'lng': point.longitude.toStringAsFixed(4),
+      });
     });
     _mapController.move(point, _zoom);
     _reverseGeocode(point);
@@ -363,7 +370,9 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<String>(
+      valueListenable: LanguageService.languageNotifier,
+      builder: (context, _, _) => Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
@@ -376,16 +385,16 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
               child: const Icon(Icons.place, color: kGreen, size: 20),
             ),
             const SizedBox(width: 10),
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Google Maps Location',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  'loc_header_title'.tr,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                 ),
                 Text(
-                  'Pin delivery address & drop point',
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                  'loc_header_subtitle'.tr,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ],
             ),
@@ -395,12 +404,12 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         actions: [
           IconButton(
             icon: const Icon(Icons.open_in_new, size: 20),
-            tooltip: 'Open in Google Maps App',
+            tooltip: 'loc_open_gmaps_tooltip'.tr,
             onPressed: _openExternalGoogleMaps,
           ),
           IconButton(
             icon: const Icon(Icons.close),
-            tooltip: 'Close',
+            tooltip: 'close'.tr,
             onPressed: () => Navigator.of(context).pop(null),
           ),
         ],
@@ -427,7 +436,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                       onSubmitted: _searchAddress,
                       style: const TextStyle(fontSize: 13),
                       decoration: InputDecoration(
-                        hintText: 'Search place, street, or landmark in Google Maps...',
+                        hintText: 'loc_search_hint'.tr,
                         hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                         prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF475569)),
                         suffixIcon: _searchCtrl.text.isNotEmpty
@@ -463,7 +472,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                           height: 14,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
-                      : const Text('Search', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      : Text('loc_search_btn'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -477,7 +486,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  const Text('Quick Areas:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey)),
+                  Text('loc_quick_areas'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey)),
                   const SizedBox(width: 8),
                   ..._quickLocations.map((loc) {
                     final isSelected = _areaCtrl.text.toLowerCase() == loc['name'].toString().toLowerCase();
@@ -499,7 +508,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                             _currentLocation = point;
                             _areaCtrl.text = loc['name'];
                             _pincodeCtrl.text = loc['pincode'];
-                            _statusMessage = 'Area set to ${loc['name']}';
+                            _statusMessage = tr('loc_area_set', {'area': '${loc['name']}'});
                           });
                           _mapController.move(point, 16.0);
                           _reverseGeocode(point);
@@ -533,7 +542,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                       urlTemplate:
                           'https://mt{s}.google.com/vt/lyrs=$_mapType&x={x}&y={y}&z={z}&key=$kGoogleMapsApiKey',
                       subdomains: const ['0', '1', '2', '3'],
-                      userAgentPackageName: 'com.amudham.rawmilk',
+                      userAgentPackageName: 'com.sriaashikaa.customer',
                       maxZoom: 20,
                       maxNativeZoom: 20,
                     ),
@@ -587,7 +596,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            _statusMessage,
+                            _statusMessage ?? 'loc_tap_map_msg'.tr,
                             style: const TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,
@@ -665,7 +674,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                           ],
                         ),
                         child: PopupMenuButton<String>(
-                          tooltip: 'Switch Google Map Layer',
+                          tooltip: 'loc_switch_layer_tooltip'.tr,
                           initialValue: _mapType,
                           icon: Icon(
                             _mapType == 'y' ? Icons.satellite_alt : Icons.layers_outlined,
@@ -676,33 +685,33 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                             setState(() => _mapType = val);
                           },
                           itemBuilder: (ctx) => [
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'm',
                               child: Row(
                                 children: [
-                                  Icon(Icons.map, size: 18, color: Colors.blue),
-                                  SizedBox(width: 8),
-                                  Text('Roadmap (Default)', style: TextStyle(fontSize: 13)),
+                                  const Icon(Icons.map, size: 18, color: Colors.blue),
+                                  const SizedBox(width: 8),
+                                  Text('loc_layer_roadmap'.tr, style: const TextStyle(fontSize: 13)),
                                 ],
                               ),
                             ),
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'y',
                               child: Row(
                                 children: [
-                                  Icon(Icons.satellite_alt, size: 18, color: Colors.green),
-                                  SizedBox(width: 8),
-                                  Text('Satellite Hybrid', style: TextStyle(fontSize: 13)),
+                                  const Icon(Icons.satellite_alt, size: 18, color: Colors.green),
+                                  const SizedBox(width: 8),
+                                  Text('loc_layer_satellite'.tr, style: const TextStyle(fontSize: 13)),
                                 ],
                               ),
                             ),
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'p',
                               child: Row(
                                 children: [
-                                  Icon(Icons.terrain, size: 18, color: Colors.brown),
-                                  SizedBox(width: 8),
-                                  Text('Terrain', style: TextStyle(fontSize: 13)),
+                                  const Icon(Icons.terrain, size: 18, color: Colors.brown),
+                                  const SizedBox(width: 8),
+                                  Text('loc_layer_terrain'.tr, style: const TextStyle(fontSize: 13)),
                                 ],
                               ),
                             ),
@@ -716,7 +725,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                         heroTag: 'gps_btn',
                         backgroundColor: Colors.white,
                         foregroundColor: kGreen,
-                        tooltip: 'Center on My GPS Location',
+                        tooltip: 'loc_center_gps_tooltip'.tr,
                         onPressed: _isLocating ? null : _fetchCurrentGPS,
                         child: _isLocating
                             ? const SizedBox(
@@ -784,12 +793,12 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                       flex: 3,
                       child: TextField(
                         controller: _areaCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Area / Neighborhood *',
-                          prefixIcon: Icon(Icons.location_city_outlined, size: 18),
+                        decoration: InputDecoration(
+                          labelText: 'loc_area_required'.tr,
+                          prefixIcon: const Icon(Icons.location_city_outlined, size: 18),
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          border: OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                     ),
@@ -798,12 +807,12 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                       flex: 2,
                       child: TextField(
                         controller: _cityCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'City *',
-                          prefixIcon: Icon(Icons.location_on_outlined, size: 18),
+                        decoration: InputDecoration(
+                          labelText: 'loc_city_required'.tr,
+                          prefixIcon: const Icon(Icons.location_on_outlined, size: 18),
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          border: OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                     ),
@@ -813,11 +822,11 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                       child: TextField(
                         controller: _pincodeCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Pincode',
+                        decoration: InputDecoration(
+                          labelText: 'pincode'.tr,
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          border: OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                     ),
@@ -828,12 +837,12 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                 // Street / Full Address Field
                 TextField(
                   controller: _addressCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Flat / Door No. & Street Address (Auto-filled from Google Maps)',
-                    prefixIcon: Icon(Icons.home_outlined, size: 18),
+                  decoration: InputDecoration(
+                    labelText: 'loc_street_autofill'.tr,
+                    prefixIcon: const Icon(Icons.home_outlined, size: 18),
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                    border: OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -841,9 +850,9 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                 // Confirm Button
                 ElevatedButton.icon(
                   icon: const Icon(Icons.check_circle_outline, size: 20),
-                  label: const Text(
-                    'Confirm Delivery Location ✓',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  label: Text(
+                    'loc_confirm_btn'.tr,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kGreen,
@@ -858,6 +867,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
           ),
         ],
       ),
+    ),
     );
   }
 }

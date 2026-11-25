@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
 import '../../services/api.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -46,12 +48,12 @@ class _PaymentTabState extends State<PaymentTab> {
   String _periodTitle(String p) {
     switch (p) {
       case 'daily':
-        return 'Daily (Post-Delivery)';
+        return 'pay_period_daily'.tr;
       case 'monthly':
-        return 'Monthly (1st of Month)';
+        return 'pay_period_monthly'.tr;
       case 'weekly':
       default:
-        return 'Weekly (Saturday)';
+        return 'pay_period_weekly'.tr;
     }
   }
 
@@ -271,15 +273,15 @@ class _PaymentTabState extends State<PaymentTab> {
                                 color: _green, size: 22),
                           ),
                           const SizedBox(width: 10),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Update Payment Time Period',
-                                  style: TextStyle(
+                              Text('pay_update_period_title'.tr,
+                                  style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold)),
-                              Text('Choose your preferred milk settlement cycle',
-                                  style: TextStyle(
+                              Text('pay_choose_cycle_sub'.tr,
+                                  style: const TextStyle(
                                       fontSize: 11, color: Colors.grey)),
                             ],
                           ),
@@ -297,9 +299,9 @@ class _PaymentTabState extends State<PaymentTab> {
                   _periodSelectionCard(
                     key: 'daily',
                     selectedKey: tempPeriod,
-                    title: 'Daily Post-Delivery',
-                    subtitle: 'Pay daily after each morning or evening delivery drop',
-                    scheduleText: 'Settlement: Daily after delivery drop',
+                    title: 'pay_daily_card_title'.tr,
+                    subtitle: 'pay_daily_card_sub'.tr,
+                    scheduleText: 'pay_daily_card_sched'.tr,
                     icon: Icons.today_outlined,
                     onTap: () => setModalState(() => tempPeriod = 'daily'),
                   ),
@@ -309,9 +311,9 @@ class _PaymentTabState extends State<PaymentTab> {
                   _periodSelectionCard(
                     key: 'weekly',
                     selectedKey: tempPeriod,
-                    title: 'Weekly (Every Saturday)',
-                    subtitle: 'Pay once a week every Saturday for delivered milk',
-                    scheduleText: 'Settlement: Every Saturday closing',
+                    title: 'pay_weekly_card_title'.tr,
+                    subtitle: 'pay_weekly_card_sub'.tr,
+                    scheduleText: 'pay_weekly_card_sched'.tr,
                     icon: Icons.view_week_outlined,
                     isPopular: true,
                     onTap: () => setModalState(() => tempPeriod = 'weekly'),
@@ -322,9 +324,9 @@ class _PaymentTabState extends State<PaymentTab> {
                   _periodSelectionCard(
                     key: 'monthly',
                     selectedKey: tempPeriod,
-                    title: 'Monthly (1st of Month)',
-                    subtitle: 'Pay once a month on the 1st for previous month consumption',
-                    scheduleText: 'Settlement: 1st of every month',
+                    title: 'pay_monthly_card_title'.tr,
+                    subtitle: 'pay_monthly_card_sub'.tr,
+                    scheduleText: 'pay_monthly_card_sched'.tr,
                     icon: Icons.calendar_month_outlined,
                     onTap: () => setModalState(() => tempPeriod = 'monthly'),
                   ),
@@ -358,8 +360,8 @@ class _PaymentTabState extends State<PaymentTab> {
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                      '✅ Payment period updated to ${_periodTitle(tempPeriod)}!'),
+                                  content: Text(tr('pay_period_updated_ok',
+                                      {'period': _periodTitle(tempPeriod)})),
                                   backgroundColor: _green,
                                   behavior: SnackBarBehavior.floating,
                                 ),
@@ -368,7 +370,8 @@ class _PaymentTabState extends State<PaymentTab> {
                               setModalState(() => updating = false);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('Failed to update period: $e'),
+                                  content: Text(tr(
+                                      'pay_period_update_err', {'err': '$e'})),
                                   backgroundColor: Colors.red,
                                 ),
                               );
@@ -381,7 +384,8 @@ class _PaymentTabState extends State<PaymentTab> {
                             child: CircularProgressIndicator(
                                 color: Colors.white, strokeWidth: 2))
                         : Text(
-                            'Save & Set Payment Cycle to ${_periodTitle(tempPeriod)} ➔',
+                            tr('pay_save_cycle_btn',
+                                {'period': _periodTitle(tempPeriod)}),
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 13),
                           ),
@@ -457,8 +461,8 @@ class _PaymentTabState extends State<PaymentTab> {
                             color: _green.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text('Popular',
-                              style: TextStyle(
+                          child: Text('pay_popular'.tr,
+                              style: const TextStyle(
                                   color: _green,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 9)),
@@ -490,337 +494,202 @@ class _PaymentTabState extends State<PaymentTab> {
     );
   }
 
-  // ── UPI Payment Flow ──────────────────────────────────────────────────────
+  // ── UPI Direct Payment Flow ───────────────────────────────────────────────
+
+  Future<void> _recordDirectPayment(
+    double amount,
+    String periodLabel,
+    String upiId,
+    String txnRef,
+  ) async {
+    try {
+      final name = widget.customer['name'] ?? 'Customer';
+      final phone = widget.customer['phone'] ?? widget.customer['mobile'] ?? '';
+
+      await SupabaseAPI.processPayment(
+        widget.customer,
+        name,
+        phone,
+        amount,
+        billingPeriod: periodLabel,
+        upiId: upiId,
+        transactionRef: txnRef,
+      );
+
+      widget.onPaymentDone();
+      await _load();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('pay_verified_ok', {'amt': '${amount.toInt()}'})),
+          backgroundColor: _green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('pay_confirm_err', {'err': '$e'})),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   Future<void> _initiateDirectUPIPayment(double amount, String periodLabel) async {
-    final upiId = (_enterprise?['upi_id'] ?? 'amudhamdairy@upi').toString().trim();
+    final upiId = (_enterprise?['upi_id'] ?? 'sriaashikaa@upi').toString().trim().replaceAll(' ', '');
     final payeeName =
-        (_enterprise?['upi_payee_name'] ?? 'Amudham Milk Enterprises').toString().trim();
-    final amtStr = amount.toStringAsFixed(2);
+        (_enterprise?['upi_payee_name'] ?? _enterprise?['company_name'] ?? 'Sri Aashikaa Milk').toString().trim();
     final custName = (widget.customer['name'] ?? 'Customer').toString();
-    final txnRef = 'UPI-${DateTime.now().millisecondsSinceEpoch}';
-    final note = 'Milk Bill $periodLabel - $custName';
+    final amtStr = amount.toStringAsFixed(2);
+    final cleanNote = 'Milk Bill $periodLabel - $custName'.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ' ').trim();
+    final safeNote = cleanNote.length > 50 ? cleanNote.substring(0, 50).trim() : cleanNote;
+    final txnRef = 'TXN${DateTime.now().millisecondsSinceEpoch}';
 
+    // Standard NPCI UPI URI with pre-filled amount and payee UPI ID directly
     final upiUrl =
-        'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=$amtStr&cu=INR&tn=${Uri.encodeComponent(note)}&tr=$txnRef';
+        'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=$amtStr&cu=INR&tn=${Uri.encodeComponent(safeNote)}';
     final uri = Uri.parse(upiUrl);
 
+    bool launched = false;
     try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        Clipboard.setData(ClipboardData(text: upiId));
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Launch externalApplication error: $e');
+    }
+
+    if (!launched) {
+      try {
+        launched = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+      } catch (e) {
+        debugPrint('Launch externalNonBrowserApplication error: $e');
       }
-    } catch (_) {
-      Clipboard.setData(ClipboardData(text: upiId));
+    }
+
+    if (!launched) {
+      try {
+        launched = await launchUrl(uri);
+      } catch (e) {
+        debugPrint('Launch default error: $e');
+      }
     }
 
     if (!mounted) return;
 
-    _showPaymentConfirmationSheet(
-      amount: amount,
-      periodLabel: periodLabel,
-      upiId: upiId,
-      payeeName: payeeName,
-      defaultTxnRef: txnRef,
-    );
-  }
-
-  void _showPaymentConfirmationSheet({
-    required double amount,
-    required String periodLabel,
-    required String upiId,
-    required String payeeName,
-    required String defaultTxnRef,
-  }) {
-    final refCtrl = TextEditingController(text: defaultTxnRef);
-    final upiIdCtrl = TextEditingController(text: upiId);
-    bool confirming = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (modalCtx, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 20,
-              ),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Header
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFECFDF5),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.verified_user_rounded,
-                                  color: _green, size: 24),
-                            ),
-                            const SizedBox(width: 10),
-                            const Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Confirm UPI Payment',
-                                    style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold)),
-                                Text('Save & settle bill with server',
-                                    style: TextStyle(
-                                        fontSize: 11, color: Colors.grey)),
-                              ],
-                            ),
-                          ],
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(modalCtx),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 20),
-
-                    // Amount Display Box
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF047857), Color(0xFF10B981)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Payment Amount Due',
-                                  style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 2),
-                              Text(
-                                '₹${amount.toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              Text(periodLabel,
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 11)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Text('UPI Payment',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Details Card
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Company UPI ID:',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
-                              Text(upiId,
-                                  style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'monospace')),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Beneficiary:',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
-                              Text(payeeName,
-                                  style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Transaction Ref / UTR Input
-                    TextField(
-                      controller: refCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Transaction Reference / UTR Number',
-                        hintText: 'e.g. 12-digit UTR from GPay / PhonePe',
-                        prefixIcon: const Icon(Icons.receipt_long, color: _green, size: 20),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Payer UPI ID / Account
-                    TextField(
-                      controller: upiIdCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Paid via UPI ID',
-                        hintText: 'e.g. yourname@okaxis or amudhamdairy@upi',
-                        prefixIcon: const Icon(Icons.account_balance_wallet_outlined, color: _green, size: 20),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Confirm and Settle Button
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                      ),
-                      onPressed: confirming
-                          ? null
-                          : () async {
-                              setModalState(() => confirming = true);
-                              try {
-                                final name = widget.customer['name'] ?? 'Customer';
-                                final phone = widget.customer['phone'] ?? widget.customer['mobile'] ?? '';
-                                final finalRef = refCtrl.text.trim().isNotEmpty
-                                    ? refCtrl.text.trim()
-                                    : defaultTxnRef;
-                                final finalUpi = upiIdCtrl.text.trim().isNotEmpty
-                                    ? upiIdCtrl.text.trim()
-                                    : upiId;
-
-                                await SupabaseAPI.processPayment(
-                                  widget.customer,
-                                  name,
-                                  phone,
-                                  amount,
-                                  billingPeriod: periodLabel,
-                                  upiId: finalUpi,
-                                  transactionRef: finalRef,
-                                );
-
-                                if (modalCtx.mounted) Navigator.pop(modalCtx);
-                                widget.onPaymentDone();
-                                await _load();
-
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('✅ Payment of ₹${amount.toInt()} Verified & Settled!\nRef: $finalRef'),
-                                    backgroundColor: _green,
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              } catch (e) {
-                                setModalState(() => confirming = false);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Failed to confirm payment: $e'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
-                            },
-                      child: confirming
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2))
-                          : const Text(
-                              'Payment Completed • Confirm & Settle Bill ➔',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Cancel / Retry later
-                    TextButton(
-                      onPressed: () => Navigator.pop(modalCtx),
-                      child: const Text('Cancel / Pay Later',
-                          style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
+    if (launched) {
+      // Payment apps opened directly on phone with pre-filled amount!
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('pay_app_opened_msg', {'amt': '${amount.toInt()}'})),
+          backgroundColor: _green,
+          duration: const Duration(seconds: 25),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'pay_mark_paid'.tr,
+            textColor: Colors.white,
+            onPressed: () => _recordDirectPayment(amount, periodLabel, upiId, txnRef),
+          ),
+        ),
+      );
+    } else {
+      Clipboard.setData(ClipboardData(text: upiId));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('pay_app_fail_copied', {'upi': upiId})),
+          backgroundColor: Colors.orange.shade800,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   // ── Invoice Dialog ────────────────────────────────────────────────────────
 
+  Future<void> _openInvoicePdf(String url, String invNum) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Text('pay_opening_pdf'.tr),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    bool opened = false;
+    try {
+      final uri = Uri.parse(url);
+      final res = await http.head(uri).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          opened = true;
+          return;
+        }
+      }
+    } catch (_) {}
+
+    if (!opened) {
+      try {
+        final uri = Uri.parse(url);
+        final res = await http.get(uri).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+            opened = true;
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!opened && mounted) {
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_outline, color: Color(0xFF10B981), size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  tr('pay_receipt_synced_msg', {'inv': invNum}),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF1E293B),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
   void _showInvoiceDialog(Map<String, dynamic> p) {
-    final invNum =
-        p['invoice_number'] ?? p['reference_number'] ?? p['id'] ?? 'INV';
+    final rawInv = p['invoice_number'] ?? p['reference_number'] ?? '';
+    final String invNum = (rawInv.toString().isNotEmpty && rawInv != 'INV-DUE' && !rawInv.toString().startsWith('INV-DUE'))
+        ? (rawInv.toString().startsWith('RCP-')
+            ? 'INV-202610-${rawInv.toString().substring(4)}'
+            : rawInv.toString())
+        : 'INV-202610-${(p['id']?.toString().substring(0, 8) ?? '001').toUpperCase()}';
+    final s3InvoiceUrl = p['invoice_url']?.toString().isNotEmpty == true
+        ? p['invoice_url'].toString()
+        : 'https://eftixvhkmtujlbayrauk.supabase.co/storage/v1/object/public/invoices/$invNum.pdf';
     final amt = p['total_amount'] ?? p['paid_amount'] ?? 0;
     final paidAmt = p['paid_amount'] ?? amt;
     final method = p['payment_method'] ?? 'UPI';
@@ -833,7 +702,7 @@ class _PaymentTabState extends State<PaymentTab> {
         .first;
     final period = p['billing_period'] ?? 'Weekly Milk Delivery';
     final ref = p['reference_number'] ?? p['transaction_ref'] ?? '-';
-    final companyName = _enterprise?['company_name'] ?? 'Amudham Raw Milk';
+    final companyName = _enterprise?['company_name'] ?? 'Sri Aashikaa Raw Milk';
 
     showDialog(
       context: context,
@@ -860,8 +729,8 @@ class _PaymentTabState extends State<PaymentTab> {
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis),
-                  const Text('Official Payment Receipt',
-                      style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('pay_receipt_title'.tr,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ],
               ),
             ),
@@ -872,23 +741,66 @@ class _PaymentTabState extends State<PaymentTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Divider(),
-            _receiptRow('Receipt / Invoice #', invNum.toString()),
-            _receiptRow('Customer', widget.customer['name'] ?? 'Customer'),
-            _receiptRow('Payment Date', date.isEmpty ? '-' : date),
-            _receiptRow('Billing Period', period.toString()),
-            _receiptRow('Payment Method', method.toString()),
-            _receiptRow('Reference No', ref.toString()),
+            _receiptRow('pay_row_inv'.tr, invNum),
+            _receiptRow('pay_row_cust'.tr, widget.customer['name'] ?? 'Customer'),
+            _receiptRow('pay_row_date'.tr, date.isEmpty ? '-' : date),
+            _receiptRow('pay_row_period'.tr, period.toString()),
+            _receiptRow('pay_row_method'.tr, method.toString()),
+            _receiptRow('pay_row_ref'.tr, ref.toString()),
             const Divider(),
-            _receiptRow('Paid Amount', '₹$paidAmt', isTotal: true),
-            _receiptRow('Payment Status', status, isStatus: true),
+            _receiptRow('pay_row_paid_amt'.tr, '₹$paidAmt', isTotal: true),
+            _receiptRow('pay_row_status'.tr, LanguageService.statusLabel(status), isStatus: true),
           ],
         ),
         actions: [
+          TextButton.icon(
+            onPressed: () {
+              final receiptText = '''
+--- SRI AASHIKAA RAW MILK ---
+Official Payment Receipt & Tax Invoice
+Invoice No: $invNum
+Customer: ${widget.customer['name'] ?? 'Customer'}
+Payment Date: ${date.isEmpty ? '-' : date}
+Billing Period: $period
+Payment Method: $method
+Reference No: $ref
+Amount Paid: ₹$paidAmt
+Payment Status: $status
+-----------------------
+Support: ${_enterprise?['support_phone'] ?? '+91 98401 23456'}
+'''.trim();
+              Clipboard.setData(ClipboardData(text: receiptText));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('pay_receipt_copied'.tr),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy, size: 14, color: _green),
+            label: Text('pay_copy_receipt'.tr,
+                style: const TextStyle(
+                    color: _green, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => _openInvoicePdf(s3InvoiceUrl, invNum),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+            label: Text('pay_download_pdf'.tr,
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close',
-                style: TextStyle(
-                    color: _green, fontWeight: FontWeight.bold)),
+            child: Text('close'.tr,
+                style: const TextStyle(
+                    color: Colors.grey, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -986,11 +898,10 @@ class _PaymentTabState extends State<PaymentTab> {
     double additionalAmt = 0.0;
 
     if (_paymentPeriod == 'daily') {
-      settlementHeading = 'Daily Settlement';
+      settlementHeading = 'pay_settle_daily'.tr;
       totalPossibleCycleDays = 1;
-      paymentDaySubtitle =
-          'Payment Timing: Daily Post-Delivery • Counted After Drop';
-      cyclePeriodLabel = DateFormat('EEEE, dd MMMM yyyy').format(today);
+      paymentDaySubtitle = 'pay_sub_daily'.tr;
+      cyclePeriodLabel = LanguageService.formatFullDayDate(today);
 
       if (isCancelledToday) {
         cancelledDaysInCycle = 1;
@@ -1006,12 +917,11 @@ class _PaymentTabState extends State<PaymentTab> {
         regularAmt = deliveredAmount;
       }
     } else if (_paymentPeriod == 'monthly') {
-      settlementHeading = 'Monthly Settlement';
+      settlementHeading = 'pay_settle_monthly'.tr;
       totalPossibleCycleDays = cycleEnd.day;
-      paymentDaySubtitle =
-          'Payment Day: 1st of Every Month • Full Month Settlement';
+      paymentDaySubtitle = 'pay_sub_monthly'.tr;
       cyclePeriodLabel =
-          '${DateFormat('01 MMM').format(today)} - ${DateFormat('dd MMM yyyy').format(cycleEnd)}';
+          '01 ${LanguageService.monthShortLabel(today.month)} - ${LanguageService.formatShortDate(cycleEnd)}';
 
       final daysElapsedInMonth = today.day;
       for (int i = 1; i <= daysElapsedInMonth; i++) {
@@ -1031,12 +941,11 @@ class _PaymentTabState extends State<PaymentTab> {
       regularAmt = deliveredAmount;
     } else {
       // Weekly (Saturday)
-      settlementHeading = 'Weekly Settlement';
+      settlementHeading = 'pay_settle_weekly'.tr;
       totalPossibleCycleDays = 7;
-      paymentDaySubtitle =
-          'Payment Day: Every Saturday • Counted After Delivery';
+      paymentDaySubtitle = 'pay_sub_weekly'.tr;
       cyclePeriodLabel =
-          '${DateFormat('dd MMM').format(cycleStart)} - ${DateFormat('dd MMM yyyy').format(cycleEnd)}';
+          '${cycleStart.day.toString().padLeft(2, '0')} ${LanguageService.monthShortLabel(cycleStart.month)} - ${LanguageService.formatShortDate(cycleEnd)}';
 
       final daysElapsedThisCycle = today.difference(cycleStart).inDays + 1;
       for (int i = 0; i < daysElapsedThisCycle && i < 7; i++) {
@@ -1168,33 +1077,40 @@ class _PaymentTabState extends State<PaymentTab> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFECFDF5),
-                        borderRadius: BorderRadius.circular(10),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.calendar_month_outlined, size: 20, color: _green),
                       ),
-                      child: const Icon(Icons.calendar_month_outlined, size: 20, color: _green),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Billing Model',
-                          style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'billing_model'.tr,
+                              style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              tr('pay_postpaid_suffix', {'period': _periodTitle(_paymentPeriod)}),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 1),
-                        Text(
-                          '${_periodTitle(_paymentPeriod)} • Pay After Delivery',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _green,
@@ -1205,7 +1121,7 @@ class _PaymentTabState extends State<PaymentTab> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   icon: const Icon(Icons.tune, size: 13),
-                  label: const Text('Change', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  label: Text('pay_change_btn'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   onPressed: _showUpdatePaymentPeriodBottomSheet,
                 ),
               ],
@@ -1271,7 +1187,11 @@ class _PaymentTabState extends State<PaymentTab> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        isCyclePaid ? 'ALL SETTLED ✅' : (_daysUntilPayment == 0 ? 'DUE TODAY ⚠️' : 'DUE IN $_daysUntilPayment DAYS'),
+                        isCyclePaid
+                            ? 'pay_all_settled'.tr
+                            : (_daysUntilPayment == 0
+                                ? 'pay_due_today'.tr
+                                : tr('pay_due_in_days', {'days': '$_daysUntilPayment'})),
                         style: TextStyle(
                           color: isCyclePaid ? _green : const Color(0xFF78350F),
                           fontSize: 10,
@@ -1283,7 +1203,7 @@ class _PaymentTabState extends State<PaymentTab> {
                 ),
                 const SizedBox(height: 18),
 
-                const Text('Current Balance Due', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                Text('pay_curr_balance_due'.tr, style: const TextStyle(color: Colors.white70, fontSize: 12)),
                 const SizedBox(height: 4),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -1300,7 +1220,9 @@ class _PaymentTabState extends State<PaymentTab> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      isCyclePaid ? '• No pending dues' : '• for ${deliveredLiters.toStringAsFixed(1)} L delivered',
+                      isCyclePaid
+                          ? 'pay_no_dues'.tr
+                          : tr('pay_for_liters', {'qty': deliveredLiters.toStringAsFixed(1)}),
                       style: const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ],
@@ -1308,8 +1230,11 @@ class _PaymentTabState extends State<PaymentTab> {
                 const SizedBox(height: 6),
                 Text(
                   isCyclePaid
-                      ? 'You have settled all milk deliveries for this cycle. Thank you!'
-                      : 'Settlement date: ${DateFormat("EEEE, dd MMM yyyy").format(_nextPaymentDate)} ($paymentDaySubtitle)',
+                      ? 'pay_all_settled_msg'.tr
+                      : tr('pay_settlement_date_msg', {
+                          'date': LanguageService.formatFullDayDate(_nextPaymentDate),
+                          'sub': paymentDaySubtitle,
+                        }),
                   style: const TextStyle(color: Colors.white70, fontSize: 11),
                 ),
                 const SizedBox(height: 18),
@@ -1327,7 +1252,9 @@ class _PaymentTabState extends State<PaymentTab> {
                     ),
                     icon: const Icon(Icons.payment, size: 20),
                     label: Text(
-                      isCyclePaid ? 'Pay Advance / Recharge ➔' : 'Pay ₹${deliveredAmount.toInt()} via UPI ➔',
+                      isCyclePaid
+                          ? 'pay_advance_btn'.tr
+                          : tr('pay_via_upi_btn', {'amt': '${deliveredAmount.toInt()}'}),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     onPressed: () {
@@ -1350,7 +1277,7 @@ class _PaymentTabState extends State<PaymentTab> {
                 child: _deliveryMetricBox(
                   icon: Icons.check_circle_outline,
                   count: '$deliveredDaysCount / $totalPossibleCycleDays',
-                  label: 'Days Delivered',
+                  label: 'pay_days_delivered'.tr,
                   color: _green,
                   bg: const Color(0xFFECFDF5),
                 ),
@@ -1360,7 +1287,7 @@ class _PaymentTabState extends State<PaymentTab> {
                 child: _deliveryMetricBox(
                   icon: Icons.water_drop_outlined,
                   count: '${deliveredLiters.toStringAsFixed(1)} L',
-                  label: 'Liters Delivered',
+                  label: 'pay_liters_delivered'.tr,
                   color: const Color(0xFF0284C7),
                   bg: const Color(0xFFF0F9FF),
                 ),
@@ -1369,8 +1296,9 @@ class _PaymentTabState extends State<PaymentTab> {
               Expanded(
                 child: _deliveryMetricBox(
                   icon: Icons.calendar_today_outlined,
-                  count: DateFormat('dd MMM').format(_nextPaymentDate),
-                  label: 'Next Settlement',
+                  count:
+                      '${_nextPaymentDate.day.toString().padLeft(2, '0')} ${LanguageService.monthShortLabel(_nextPaymentDate.month)}',
+                  label: 'pay_next_settlement'.tr,
                   color: const Color(0xFF7C3AED),
                   bg: const Color(0xFFF5F3FF),
                 ),
@@ -1402,14 +1330,14 @@ class _PaymentTabState extends State<PaymentTab> {
                             child: const Icon(Icons.receipt_outlined, color: _green, size: 20),
                           ),
                           const SizedBox(width: 10),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Bill Calculation Breakdown',
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                'pay_calc_breakdown'.tr,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
-                              Text('Transparent accounting for this cycle', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                              Text('pay_transparent_acct'.tr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
                             ],
                           ),
                         ],
@@ -1422,7 +1350,7 @@ class _PaymentTabState extends State<PaymentTab> {
                           border: Border.all(color: const Color(0xFFCBD5E1)),
                         ),
                         child: Text(
-                          '₹${_ratePerLiter.toInt()} / Liter',
+                          tr('pay_rate_per_liter_chip', {'rate': '${_ratePerLiter.toInt()}'}),
                           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                         ),
                       ),
@@ -1440,40 +1368,47 @@ class _PaymentTabState extends State<PaymentTab> {
                     child: Column(
                       children: [
                         _billingBreakdownRow(
-                          'Daily Plan Subscription',
-                          '$dailyQty L/day @ ₹${_ratePerLiter.toInt()}/L',
-                          '₹${(dailyQty * _ratePerLiter).toInt()} / day',
+                          'pay_row_daily_sub'.tr,
+                          tr('pay_row_daily_val', {'qty': '$dailyQty', 'rate': '${_ratePerLiter.toInt()}'}),
+                          tr('pay_row_per_day', {'amt': '${(dailyQty * _ratePerLiter).toInt()}'}),
                         ),
                         _billingBreakdownRow(
-                          'Completed Regular Deliveries',
-                          '$regularDeliveredDays days (${regularLiters.toStringAsFixed(1)} L @ ₹${_ratePerLiter.toInt()}/L)',
+                          'pay_row_reg_del'.tr,
+                          tr('pay_row_reg_val', {
+                            'days': '$regularDeliveredDays',
+                            'qty': regularLiters.toStringAsFixed(1),
+                            'rate': '${_ratePerLiter.toInt()}',
+                          }),
                           '₹${regularAmt.toInt()}',
                         ),
                         if (additionalDeliveries.isNotEmpty)
                           _billingBreakdownRow(
-                            'Additional / Extra Milk Orders',
-                            '${additionalDeliveries.length} order (${additionalLiters.toStringAsFixed(1)} L)',
+                            'pay_row_extra_orders'.tr,
+                            tr('pay_row_extra_val', {
+                              'count': '${additionalDeliveries.length}',
+                              'qty': additionalLiters.toStringAsFixed(1),
+                            }),
                             '+ ₹${additionalAmt.toInt()}',
                             highlightColor: const Color(0xFF0284C7),
                           ),
                         if (isTodayOutForDelivery)
                           _billingBreakdownRow(
-                            'Today (Out for Delivery 🚚)',
-                            '1 day ($dailyQty L dispatched)',
-                            '₹${(dailyQty * _ratePerLiter).toInt()} included',
+                            'pay_row_today_ofd'.tr,
+                            tr('pay_row_today_val', {'qty': '$dailyQty'}),
+                            tr('pay_row_included', {'amt': '${(dailyQty * _ratePerLiter).toInt()}'}),
                             highlightColor: const Color(0xFF1D4ED8),
                           ),
                         if (cancelledDaysInCycle > 0)
                           _billingBreakdownRow(
-                            'Paused / Cancelled Days',
-                            '$cancelledDaysInCycle days excluded',
-                            '- ₹0 (Not Charged)',
+                            'pay_row_paused'.tr,
+                            tr('pay_row_paused_val', {'days': '$cancelledDaysInCycle'}),
+                            'pay_row_not_charged'.tr,
                             highlightColor: Colors.orange.shade800,
                           ),
                         const Divider(height: 16),
                         _billingBreakdownRow(
-                          'Current Delivered Amount to Pay',
-                          'Settlement: ${_periodTitle(_paymentPeriod)}',
+                          'pay_row_curr_to_pay'.tr,
+                          tr('pay_row_settlement', {'period': _periodTitle(_paymentPeriod)}),
                           '₹${deliveredAmount.toInt()}',
                           isBold: true,
                           highlightColor: isCyclePaid ? _green : Colors.orange.shade800,
@@ -1490,14 +1425,14 @@ class _PaymentTabState extends State<PaymentTab> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFA7F3D0)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.verified_outlined, size: 16, color: _green),
-                        SizedBox(width: 8),
+                        const Icon(Icons.verified_outlined, size: 16, color: _green),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Pay-After-Delivery: You are only charged for milk successfully delivered to your doorstep. Paused and cancelled days are never charged.',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
+                            'pay_postpaid_notice'.tr,
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
                           ),
                         ),
                       ],
@@ -1521,9 +1456,9 @@ class _PaymentTabState extends State<PaymentTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Subscription Plan & Settings',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      Text(
+                        'pay_sub_settings_title'.tr,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                       InkWell(
                         onTap: _showUpdatePaymentPeriodBottomSheet,
@@ -1534,12 +1469,12 @@ class _PaymentTabState extends State<PaymentTab> {
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: _green.withValues(alpha: 0.3)),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.edit_calendar, size: 12, color: _green),
-                              SizedBox(width: 4),
-                              Text('Change Cycle', style: TextStyle(color: _green, fontSize: 11, fontWeight: FontWeight.bold)),
+                              const Icon(Icons.edit_calendar, size: 12, color: _green),
+                              const SizedBox(width: 4),
+                              Text('pay_change_cycle'.tr, style: const TextStyle(color: _green, fontSize: 11, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -1553,7 +1488,7 @@ class _PaymentTabState extends State<PaymentTab> {
                       Expanded(
                         child: _planDetailTile(
                           icon: Icons.calendar_month,
-                          label: 'Billing Cycle',
+                          label: 'payment_cycle'.tr,
                           value: _periodTitle(_paymentPeriod),
                         ),
                       ),
@@ -1561,8 +1496,8 @@ class _PaymentTabState extends State<PaymentTab> {
                       Expanded(
                         child: _planDetailTile(
                           icon: Icons.event,
-                          label: 'Next Settlement Date',
-                          value: DateFormat('EEE, dd MMM yyyy').format(_nextPaymentDate),
+                          label: 'pay_next_settle_date'.tr,
+                          value: LanguageService.formatShortDayDate(_nextPaymentDate),
                         ),
                       ),
                     ],
@@ -1573,16 +1508,19 @@ class _PaymentTabState extends State<PaymentTab> {
                       Expanded(
                         child: _planDetailTile(
                           icon: Icons.water_drop,
-                          label: 'Per Litre Rate',
-                          value: '₹${_ratePerLiter.toInt()} / Liter',
+                          label: 'pay_per_litre_rate'.tr,
+                          value: tr('pay_rate_per_liter_chip', {'rate': '${_ratePerLiter.toInt()}'}),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _planDetailTile(
                           icon: Icons.schedule,
-                          label: 'Daily Milk Rate',
-                          value: '₹${(dailyQty * _ratePerLiter).toInt()} / day ($dailyQty L)',
+                          label: 'pay_daily_milk_rate'.tr,
+                          value: tr('pay_daily_rate_val', {
+                            'amt': '${(dailyQty * _ratePerLiter).toInt()}',
+                            'qty': '$dailyQty',
+                          }),
                         ),
                       ),
                     ],
@@ -1607,9 +1545,9 @@ class _PaymentTabState extends State<PaymentTab> {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Official Dairy UPI ID', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                Text('pay_official_upi'.tr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                                 Text(
-                                  _enterprise?['upi_id'] ?? 'amudhamdairy@upi',
+                                  _enterprise?['upi_id'] ?? 'sriaashikaa@upi',
                                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                                 ),
                               ],
@@ -1618,11 +1556,11 @@ class _PaymentTabState extends State<PaymentTab> {
                         ),
                         InkWell(
                           onTap: () {
-                            final upi = _enterprise?['upi_id'] ?? 'amudhamdairy@upi';
+                            final upi = _enterprise?['upi_id'] ?? 'sriaashikaa@upi';
                             Clipboard.setData(ClipboardData(text: upi));
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('UPI ID copied: $upi'),
+                                content: Text(tr('onb_upi_copied', {'upi': '$upi'})),
                                 backgroundColor: _green,
                                 behavior: SnackBarBehavior.floating,
                                 duration: const Duration(seconds: 2),
@@ -1636,12 +1574,12 @@ class _PaymentTabState extends State<PaymentTab> {
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(color: Colors.grey.shade300),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.copy, size: 12, color: _green),
-                                SizedBox(width: 4),
-                                Text('Copy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green)),
+                                const Icon(Icons.copy, size: 12, color: _green),
+                                const SizedBox(width: 4),
+                                Text('onb_copy_btn'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green)),
                               ],
                             ),
                           ),
@@ -1670,12 +1608,12 @@ class _PaymentTabState extends State<PaymentTab> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Payment History & Receipts',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          Text(
+                            'pay_history_title'.tr,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                           ),
                           Text(
-                            'Total Received (All-Time): ₹${totalReceivedAllTime.toStringAsFixed(0)}',
+                            tr('pay_total_received', {'amt': totalReceivedAllTime.toStringAsFixed(0)}),
                             style: const TextStyle(color: Colors.grey, fontSize: 11),
                           ),
                         ],
@@ -1687,7 +1625,7 @@ class _PaymentTabState extends State<PaymentTab> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${_payments.length} Records',
+                          tr('pay_records_count', {'count': '${_payments.length}'}),
                           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green),
                         ),
                       ),
@@ -1700,16 +1638,22 @@ class _PaymentTabState extends State<PaymentTab> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _filterChip('ALL', 'All (${_payments.length})'),
+                        _filterChip('ALL', tr('pay_filter_all', {'count': '${_payments.length}'})),
                         const SizedBox(width: 8),
                         _filterChip(
                           'PAID',
-                          'Paid (${_payments.where((p) => (p['payment_status'] ?? p['status'] ?? '').toString().toUpperCase() == 'PAID').length})',
+                          tr('pay_filter_paid', {
+                            'count':
+                                '${_payments.where((p) => (p['payment_status'] ?? p['status'] ?? '').toString().toUpperCase() == 'PAID').length}',
+                          }),
                         ),
                         const SizedBox(width: 8),
                         _filterChip(
                           'PENDING',
-                          'Pending (${_payments.where((p) => (p['payment_status'] ?? p['status'] ?? '').toString().toUpperCase() == 'PENDING').length})',
+                          tr('pay_filter_pending', {
+                            'count':
+                                '${_payments.where((p) => (p['payment_status'] ?? p['status'] ?? '').toString().toUpperCase() == 'PENDING').length}',
+                          }),
                         ),
                       ],
                     ),
@@ -1728,7 +1672,9 @@ class _PaymentTabState extends State<PaymentTab> {
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
-                          'No ${_historyFilter == "ALL" ? "" : _historyFilter.toLowerCase()} payment records found.',
+                          tr('pay_no_records_filter', {
+                            'filter': _historyFilter == "ALL" ? "" : LanguageService.statusLabel(_historyFilter),
+                          }),
                           style: const TextStyle(color: Colors.grey, fontSize: 12),
                         ),
                       ),
@@ -1885,8 +1831,12 @@ class _PaymentTabState extends State<PaymentTab> {
         .toString()
         .toUpperCase();
     final isPaid = status == 'PAID' || status == 'COMPLETED';
-    final invNum =
-        p['invoice_number'] ?? p['reference_number'] ?? p['id'] ?? 'INV';
+    final rawInv = p['invoice_number'] ?? p['reference_number'] ?? '';
+    final String invNum = (rawInv.toString().isNotEmpty && rawInv != 'INV-DUE')
+        ? (rawInv.toString().startsWith('RCP-')
+            ? 'INV-202610-${rawInv.toString().substring(4)}'
+            : rawInv.toString())
+        : 'INV-${(p['id']?.toString().substring(0, 8) ?? '001').toUpperCase()}';
     final amt = p['total_amount'] ?? p['paid_amount'] ?? 0;
     final mode = p['payment_method'] ?? 'UPI';
     final period = p['billing_period'] ?? 'Weekly Milk Delivery';
@@ -1944,7 +1894,7 @@ class _PaymentTabState extends State<PaymentTab> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Method: $mode',
+                    tr('pay_method_line', {'mode': '$mode'}),
                     style: const TextStyle(color: Colors.grey, fontSize: 11),
                   ),
                 ],
@@ -1969,7 +1919,7 @@ class _PaymentTabState extends State<PaymentTab> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isPaid ? 'PAID ✅' : 'PENDING ⚠️',
+                    isPaid ? 'pay_badge_paid'.tr : 'pay_badge_pending'.tr,
                     style: TextStyle(
                       color: isPaid ? _green : Colors.orange.shade900,
                       fontSize: 10,

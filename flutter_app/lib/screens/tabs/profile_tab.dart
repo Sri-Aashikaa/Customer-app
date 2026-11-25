@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api.dart';
 import '../../services/session_service.dart';
+import '../../services/language_service.dart';
 import '../../widgets/location_picker_dialog.dart';
+import '../../widgets/app_logo.dart';
 import '../auth_screen.dart';
 import '../change_password_screen.dart';
 import '../deactivate_account_screen.dart';
@@ -88,12 +90,14 @@ class _ProfileTabState extends State<ProfileTab> {
           }
         } else if (!silent) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Row(
                 children: [
-                  Icon(Icons.check_circle, color: Colors.white),
-                  SizedBox(width: 10),
-                  Text('App is up to date! (v${SupabaseAPI.currentAppVersion})'),
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(tr('prof_up_to_date_toast', {'ver': SupabaseAPI.currentAppVersion})),
+                  ),
                 ],
               ),
               backgroundColor: _green,
@@ -108,7 +112,7 @@ class _ProfileTabState extends State<ProfileTab> {
         if (!silent) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to check for updates: $e'),
+              content: Text(tr('prof_update_check_err', {'err': '$e'})),
               backgroundColor: Colors.redAccent,
               behavior: SnackBarBehavior.floating,
             ),
@@ -133,21 +137,21 @@ class _ProfileTabState extends State<ProfileTab> {
           },
         );
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Row(
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 ),
-                SizedBox(width: 12),
-                Text('Updating app to latest version...'),
+                const SizedBox(width: 12),
+                Expanded(child: Text('prof_updating_toast'.tr)),
               ],
             ),
             backgroundColor: _green,
             behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
         await Future.delayed(const Duration(milliseconds: 700));
@@ -168,7 +172,7 @@ class _ProfileTabState extends State<ProfileTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Update failed: $e'),
+            content: Text(tr('prof_update_failed', {'err': '$e'})),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -207,10 +211,10 @@ class _ProfileTabState extends State<ProfileTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('New Update Available!',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('prof_new_update_title'.tr,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 2),
-                  Text('Version $latestVer is ready',
+                  Text(tr('prof_ver_ready', {'ver': '$latestVer'}),
                       style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
               ),
@@ -236,9 +240,9 @@ class _ProfileTabState extends State<ProfileTab> {
                     children: [
                       const Icon(Icons.notes_rounded, size: 16, color: Color(0xFF64748B)),
                       const SizedBox(width: 6),
-                      const Text(
-                        'Release Highlights:',
-                        style: TextStyle(
+                      Text(
+                        'prof_release_highlights'.tr,
+                        style: const TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155)),
                       ),
                       const Spacer(),
@@ -266,14 +270,14 @@ class _ProfileTabState extends State<ProfileTab> {
             ),
             if (isForced) ...[
               const SizedBox(height: 10),
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange),
-                  SizedBox(width: 6),
+                  const Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'This is a required update for uninterrupted service.',
-                      style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600),
+                      'prof_required_update'.tr,
+                      style: const TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -285,7 +289,7 @@ class _ProfileTabState extends State<ProfileTab> {
           if (!isForced)
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Later', style: TextStyle(color: Colors.grey)),
+              child: Text('prof_later'.tr, style: const TextStyle(color: Colors.grey)),
             ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
@@ -295,7 +299,7 @@ class _ProfileTabState extends State<ProfileTab> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
             icon: const Icon(Icons.download_rounded, size: 18),
-            label: Text(kIsWeb ? 'Update & Refresh' : 'Update Now'),
+            label: Text(kIsWeb ? 'prof_update_refresh'.tr : 'update_now_btn'.tr),
             onPressed: () {
               Navigator.pop(ctx);
               _performAppUpdate(info);
@@ -350,9 +354,9 @@ class _ProfileTabState extends State<ProfileTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Update Profile Details',
-                        style: TextStyle(
+                      Text(
+                        'prof_update_profile_title'.tr,
+                        style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A)),
@@ -368,10 +372,10 @@ class _ProfileTabState extends State<ProfileTab> {
 
                   TextField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name *',
-                      prefixIcon: Icon(Icons.person_outline),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_full_name_req'.tr,
+                      prefixIcon: const Icon(Icons.person_outline),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -379,10 +383,10 @@ class _ProfileTabState extends State<ProfileTab> {
                   TextField(
                     controller: addressCtrl,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Street Address *',
-                      prefixIcon: Icon(Icons.home_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_street_addr_req'.tr,
+                      prefixIcon: const Icon(Icons.home_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -402,8 +406,8 @@ class _ProfileTabState extends State<ProfileTab> {
                           : () async {
                               if (nameCtrl.text.trim().isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Please enter your full name'),
+                                  SnackBar(
+                                    content: Text('prof_err_name'.tr),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -429,9 +433,8 @@ class _ProfileTabState extends State<ProfileTab> {
                                 if (context.mounted) {
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          '✅ Profile details updated successfully!'),
+                                    SnackBar(
+                                      content: Text('prof_profile_updated_ok'.tr),
                                       backgroundColor: _green,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -456,9 +459,9 @@ class _ProfileTabState extends State<ProfileTab> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text(
-                              'Save Profile Changes',
-                              style: TextStyle(
+                          : Text(
+                              'prof_save_profile_btn'.tr,
+                              style: const TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                     ),
@@ -502,9 +505,9 @@ class _ProfileTabState extends State<ProfileTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Update Mobile Number',
-                        style: TextStyle(
+                      Text(
+                        'prof_update_mobile_title'.tr,
+                        style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A)),
@@ -524,15 +527,15 @@ class _ProfileTabState extends State<ProfileTab> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.amber.shade300),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.shield_outlined,
+                        const Icon(Icons.shield_outlined,
                             size: 18, color: Colors.amber),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Security Authorization Required: Enter your account password to verify your identity before changing your login mobile number.',
-                            style: TextStyle(
+                            'prof_mobile_auth_notice'.tr,
+                            style: const TextStyle(
                                 fontSize: 11, color: Color(0xFF78350F)),
                           ),
                         ),
@@ -544,11 +547,11 @@ class _ProfileTabState extends State<ProfileTab> {
                   TextField(
                     controller: mobileCtrl,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'New Mobile Number *',
-                      hintText: '10-digit mobile number',
-                      prefixIcon: Icon(Icons.phone_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_new_mobile_req'.tr,
+                      hintText: 'prof_mobile_10_hint'.tr,
+                      prefixIcon: const Icon(Icons.phone_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -557,7 +560,7 @@ class _ProfileTabState extends State<ProfileTab> {
                     controller: passCtrl,
                     obscureText: obscurePass,
                     decoration: InputDecoration(
-                      labelText: 'Account Password for Authorization *',
+                      labelText: 'prof_acc_pass_auth'.tr,
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         icon: Icon(obscurePass
@@ -589,9 +592,8 @@ class _ProfileTabState extends State<ProfileTab> {
 
                               if (newMobile.length < 10) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                        'Please enter a valid 10-digit mobile number'),
+                                  SnackBar(
+                                    content: Text('prof_err_mobile_10'.tr),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -600,9 +602,8 @@ class _ProfileTabState extends State<ProfileTab> {
 
                               if (pass.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                        'Please enter your password for security authorization'),
+                                  SnackBar(
+                                    content: Text('prof_err_pass_auth'.tr),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -623,9 +624,8 @@ class _ProfileTabState extends State<ProfileTab> {
                                   setModalState(() => isSaving = false);
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                            '🔒 Incorrect password authorization! Mobile number not changed.'),
+                                      SnackBar(
+                                        content: Text('prof_err_wrong_pass'.tr),
                                         backgroundColor: Colors.red,
                                       ),
                                     );
@@ -649,9 +649,8 @@ class _ProfileTabState extends State<ProfileTab> {
                                 if (context.mounted) {
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          '📱 Mobile number updated securely!'),
+                                    SnackBar(
+                                      content: Text('prof_mobile_updated_ok'.tr),
                                       backgroundColor: _green,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -676,9 +675,9 @@ class _ProfileTabState extends State<ProfileTab> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text(
-                              'Authorize & Update Mobile Number',
-                              style: TextStyle(
+                          : Text(
+                              'prof_auth_update_mobile_btn'.tr,
+                              style: const TextStyle(
                                   fontSize: 15, fontWeight: FontWeight.bold),
                             ),
                     ),
@@ -733,9 +732,9 @@ class _ProfileTabState extends State<ProfileTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Update Account & Location Details',
-                        style: TextStyle(
+                      Text(
+                        'prof_update_acc_loc_title'.tr,
+                        style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A)),
@@ -751,20 +750,20 @@ class _ProfileTabState extends State<ProfileTab> {
 
                   TextField(
                     controller: areaCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Area / Neighborhood',
-                      prefixIcon: Icon(Icons.location_city_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_area_neighborhood'.tr,
+                      prefixIcon: const Icon(Icons.location_city_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
 
                   TextField(
                     controller: cityCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'City',
-                      prefixIcon: Icon(Icons.location_on_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'city'.tr,
+                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -772,10 +771,10 @@ class _ProfileTabState extends State<ProfileTab> {
                   TextField(
                     controller: pincodeCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Pincode',
-                      prefixIcon: Icon(Icons.markunread_mailbox_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'pincode'.tr,
+                      prefixIcon: const Icon(Icons.markunread_mailbox_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -783,11 +782,11 @@ class _ProfileTabState extends State<ProfileTab> {
                   TextField(
                     controller: altMobileCtrl,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'Alternate Mobile Number',
-                      hintText: 'Secondary or emergency contact number',
-                      prefixIcon: Icon(Icons.phone_android_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_alt_mobile'.tr,
+                      hintText: 'prof_alt_mobile_hint'.tr,
+                      prefixIcon: const Icon(Icons.phone_android_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -795,21 +794,21 @@ class _ProfileTabState extends State<ProfileTab> {
                   TextField(
                     controller: emailCtrl,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Email Address / ID',
+                    decoration: InputDecoration(
+                      labelText: 'prof_email_id_label'.tr,
                       hintText: 'e.g. customer@example.com',
-                      prefixIcon: Icon(Icons.email_outlined),
-                      border: OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
 
                   TextField(
                     controller: locationCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Delivery Location Address',
-                      prefixIcon: Icon(Icons.map_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: 'prof_del_loc_addr'.tr,
+                      prefixIcon: const Icon(Icons.map_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -832,8 +831,12 @@ class _ProfileTabState extends State<ProfileTab> {
                             Expanded(
                               child: Text(
                                 lat != null && lng != null
-                                    ? 'Map Pin: ${areaCtrl.text.isNotEmpty ? areaCtrl.text : 'Selected'}'
-                                    : 'Pick delivery location on the map',
+                                    ? tr('prof_map_pin', {
+                                        'loc': areaCtrl.text.isNotEmpty
+                                            ? areaCtrl.text
+                                            : 'prof_map_selected'.tr
+                                      })
+                                    : 'prof_pick_del_loc'.tr,
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                             ),
@@ -852,8 +855,8 @@ class _ProfileTabState extends State<ProfileTab> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
                                 icon: const Icon(Icons.pin_drop, size: 16),
-                                label: const Text('Pick / Modify on Map 🗺️',
-                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                label: Text('pick_on_map'.tr,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                 onPressed: () async {
                                   final result = await LocationPickerDialog.show(
                                     context,
@@ -898,7 +901,7 @@ class _ProfileTabState extends State<ProfileTab> {
                                 icon: isFetchingGps
                                     ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: _green))
                                     : const Icon(Icons.my_location, size: 15),
-                                label: const Text('My GPS 📍', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                label: Text('prof_my_gps'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                 onPressed: isFetchingGps
                                     ? null
                                     : () async {
@@ -984,31 +987,34 @@ class _ProfileTabState extends State<ProfileTab> {
                                       context: context,
                                       builder: (ctx) => AlertDialog(
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                        title: const Row(
+                                        title: Row(
                                           children: [
-                                            Icon(Icons.location_off_outlined, color: Colors.orange),
-                                            SizedBox(width: 8),
-                                            Text('Location Notice', style: TextStyle(fontSize: 16)),
+                                            const Icon(Icons.location_off_outlined, color: Colors.orange),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text('prof_loc_notice_title'.tr,
+                                                  style: const TextStyle(fontSize: 16)),
+                                            ),
                                           ],
                                         ),
                                         content: Text(
-                                          '“We are not available at your location yet, but we will quickly reach to your location”\n\n'
-                                          'Your location request for Pincode $newPin has been sent to our operations depot.',
+                                          tr('prof_loc_notice_body', {'pin': newPin}),
                                           style: const TextStyle(fontSize: 13, height: 1.4),
                                         ),
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.pop(ctx),
-                                            child: const Text('OK', style: TextStyle(color: _green, fontWeight: FontWeight.bold)),
+                                            child: Text('ok'.tr,
+                                                style: const TextStyle(
+                                                    color: _green, fontWeight: FontWeight.bold)),
                                           ),
                                         ],
                                       ),
                                     );
                                   } else {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                            '✅ Location and account details updated successfully!'),
+                                      SnackBar(
+                                        content: Text('prof_loc_updated_ok'.tr),
                                         backgroundColor: _green,
                                         behavior: SnackBarBehavior.floating,
                                       ),
@@ -1034,14 +1040,236 @@ class _ProfileTabState extends State<ProfileTab> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text(
-                              'Save Location & Account Details',
-                              style: TextStyle(
+                          : Text(
+                              'prof_save_loc_btn'.tr,
+                              style: const TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                     ),
                   ),
                 ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openLanguageSelectionModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        String tempLang = LanguageService.currentLanguage;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final isTa = tempLang == 'ta';
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.translate_rounded, color: _green, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isTa ? 'மொழி விருப்பம்' : 'Language Preference',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                isTa ? 'செயலியின் மொழியைத் தேர்ந்தெடுக்கவும்' : 'Select app language',
+                                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Option 1: Tamil
+                    InkWell(
+                      onTap: () {
+                        setModalState(() => tempLang = 'ta');
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: tempLang == 'ta' ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: tempLang == 'ta' ? _green : const Color(0xFFE2E8F0),
+                            width: tempLang == 'ta' ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: tempLang == 'ta' ? _green : const Color(0xFFE2E8F0),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'த',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: tempLang == 'ta' ? Colors.white : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'தமிழ் (Tamil)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                  Text(
+                                    'பயன்பாட்டை முழுமையாக தமிழில் பயன்படுத்தவும்',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (tempLang == 'ta')
+                              const Icon(Icons.check_circle, color: _green, size: 22)
+                            else
+                              const Icon(Icons.radio_button_unchecked, color: Colors.grey, size: 22),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Option 2: English
+                    InkWell(
+                      onTap: () {
+                        setModalState(() => tempLang = 'en');
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: tempLang == 'en' ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: tempLang == 'en' ? _green : const Color(0xFFE2E8F0),
+                            width: tempLang == 'en' ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: tempLang == 'en' ? _green : const Color(0xFFE2E8F0),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'EN',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: tempLang == 'en' ? Colors.white : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'English',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                  Text(
+                                    'Use the entire app in English',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (tempLang == 'en')
+                              const Icon(Icons.check_circle, color: _green, size: 22)
+                            else
+                              const Icon(Icons.radio_button_unchecked, color: Colors.grey, size: 22),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (tempLang != LanguageService.currentLanguage) {
+                          await LanguageService.setLanguage(tempLang);
+                          if (mounted) {
+                            setState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle, color: Colors.white),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      tempLang == 'ta'
+                                          ? 'மொழி வெற்றிகரமாக தமிழாக மாற்றப்பட்டது'
+                                          : 'Language successfully changed to English',
+                                    ),
+                                  ],
+                                ),
+                                backgroundColor: _green,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: Text(
+                        isTa ? 'சேமிக்க (Save)' : 'Save Language (சேமிக்க)',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1061,7 +1289,7 @@ class _ProfileTabState extends State<ProfileTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not launch link: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(tr('prof_err_link', {'err': '$e'})), backgroundColor: Colors.red),
         );
       }
     }
@@ -1079,10 +1307,11 @@ class _ProfileTabState extends State<ProfileTab> {
       planName = 'Daily';
     }
 
+    final localizedPlan = LanguageService.planLabel(planName);
     final badgeLabel = planName.toLowerCase().contains('plan') ||
             planName.toLowerCase().contains('subscription')
-        ? planName
-        : '$planName Plan';
+        ? localizedPlan
+        : tr('prof_plan_badge', {'plan': localizedPlan});
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1134,8 +1363,8 @@ class _ProfileTabState extends State<ProfileTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Profile Details',
-                          style: TextStyle(
+                      Text('prof_details_title'.tr,
+                          style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold)),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -1149,19 +1378,19 @@ class _ProfileTabState extends State<ProfileTab> {
                               borderRadius: BorderRadius.circular(8)),
                         ),
                         icon: const Icon(Icons.edit_outlined, size: 14),
-                        label: const Text('Update Profile',
-                            style: TextStyle(
+                        label: Text('prof_update_btn'.tr,
+                            style: const TextStyle(
                                 fontSize: 12, fontWeight: FontWeight.bold)),
                         onPressed: _openUpdateProfileModal,
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _detailRow(Icons.badge_outlined, 'Customer ID',
+                  _detailRow(Icons.badge_outlined, 'prof_customer_id'.tr,
                       (c['customer_id'] ?? c['id'] ?? '').toString()),
-                  _detailRow(Icons.person_outline, 'Full Name',
-                      (c['name'] ?? 'Customer').toString()),
-                  _detailRow(Icons.home_outlined, 'Delivery Address',
+                  _detailRow(Icons.person_outline, 'full_name'.tr,
+                      (c['name'] ?? 'pay_row_cust'.tr).toString()),
+                  _detailRow(Icons.home_outlined, 'prof_delivery_address'.tr,
                       _formatFullAddress(c)),
                   
                   const SizedBox(height: 8),
@@ -1173,9 +1402,9 @@ class _ProfileTabState extends State<ProfileTab> {
                     children: [
                       const Icon(Icons.phone_outlined, size: 18, color: _green),
                       const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text('Mobile Number',
-                            style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      Expanded(
+                        child: Text('prof_mobile_label'.tr,
+                            style: const TextStyle(color: Colors.grey, fontSize: 13)),
                       ),
                       Text(
                         c['mobile'] ?? c['phone'] ?? '',
@@ -1195,8 +1424,8 @@ class _ProfileTabState extends State<ProfileTab> {
                               borderRadius: BorderRadius.circular(6)),
                         ),
                         icon: const Icon(Icons.lock_person_outlined, size: 12),
-                        label: const Text('Change',
-                            style: TextStyle(
+                        label: Text('prof_change_btn'.tr,
+                            style: const TextStyle(
                                 fontSize: 11, fontWeight: FontWeight.bold)),
                         onPressed: _openChangeMobileModal,
                       ),
@@ -1217,8 +1446,8 @@ class _ProfileTabState extends State<ProfileTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Account Details',
-                          style: TextStyle(
+                      Text('account_details'.tr,
+                          style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold)),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -1232,29 +1461,29 @@ class _ProfileTabState extends State<ProfileTab> {
                               borderRadius: BorderRadius.circular(8)),
                         ),
                         icon: const Icon(Icons.edit_location_alt_outlined, size: 14),
-                        label: const Text('Update Location',
-                            style: TextStyle(
+                        label: Text('update_location_btn'.tr,
+                            style: const TextStyle(
                                 fontSize: 12, fontWeight: FontWeight.bold)),
                         onPressed: _openUpdateAccountDetailsModal,
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _detailRow(Icons.phone_outlined, 'Primary Mobile',
+                  _detailRow(Icons.phone_outlined, 'primary_mobile'.tr,
                       _safeDisplay(c['mobile'] ?? c['phone'])),
-                  _detailRow(Icons.phone_android_outlined, 'Alternate Mobile',
-                      _safeDisplay(c['alternate_mobile'] ?? c['alt_mobile'], 'Not provided')),
-                  _detailRow(Icons.email_outlined, 'Email Address',
-                      _safeDisplay(c['email'] ?? c['email_id'], 'Not provided')),
-                  _detailRow(Icons.payments_outlined, 'Payment Plan',
-                      _safeDisplay(c['payment_period'] ?? c['billing_cycle'], 'Weekly').toUpperCase()),
-                  _detailRow(Icons.location_city_outlined, 'Area',
+                  _detailRow(Icons.phone_android_outlined, 'alternate_mobile_label'.tr,
+                      _safeDisplay(c['alternate_mobile'] ?? c['alt_mobile'], 'prof_not_provided'.tr)),
+                  _detailRow(Icons.email_outlined, 'email_label'.tr,
+                      _safeDisplay(c['email'] ?? c['email_id'], 'prof_not_provided'.tr)),
+                  _detailRow(Icons.payments_outlined, 'payment_plan_label'.tr,
+                      LanguageService.periodLabel((c['payment_period'] ?? c['billing_cycle'] ?? 'weekly').toString()).toUpperCase()),
+                  _detailRow(Icons.location_city_outlined, 'area_label'.tr,
                       _safeDisplay(c['area'] ?? c['location'], 'Anna Nagar')),
-                  _detailRow(Icons.location_on_outlined, 'City',
+                  _detailRow(Icons.location_on_outlined, 'city_label'.tr,
                       _safeDisplay(c['city'], 'Salem')),
-                  _detailRow(Icons.markunread_mailbox_outlined, 'Pincode',
+                  _detailRow(Icons.markunread_mailbox_outlined, 'pincode_label'.tr,
                       _safeDisplay(c['pincode'], '636004')),
-                  _detailRow(Icons.map_outlined, 'Location',
+                  _detailRow(Icons.map_outlined, 'full_address_label'.tr,
                       _formatFullAddress(c)),
                 ]),
           ),
@@ -1268,18 +1497,18 @@ class _ProfileTabState extends State<ProfileTab> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.lock_outline, color: _green),
-                      SizedBox(width: 8),
-                      Text('Security & Password',
-                          style: TextStyle(
+                      const Icon(Icons.lock_outline, color: _green),
+                      const SizedBox(width: 8),
+                      Text('security_password_title'.tr,
+                          style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text('Verify your current password and update to a new password',
-                      style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text('security_password_desc'.tr,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 16),
 
                   ElevatedButton.icon(
@@ -1291,8 +1520,8 @@ class _ProfileTabState extends State<ProfileTab> {
                           borderRadius: BorderRadius.circular(10)),
                     ),
                     icon: const Icon(Icons.lock_reset),
-                    label: const Text('Change Password',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: Text('change_password_btn'.tr,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -1303,6 +1532,104 @@ class _ProfileTabState extends State<ProfileTab> {
                     },
                   ),
                 ]),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Language Preference Card ──────────────────────────────────────
+        Card(
+          elevation: 1.5,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.translate_rounded, color: _green, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'language_preference'.tr,
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'language_preference_desc'.tr,
+                            style: const TextStyle(color: Colors.grey, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.language_rounded, size: 18, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            'current_language'.tr,
+                            style: const TextStyle(fontSize: 13, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDCFCE7),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF86EFAC)),
+                        ),
+                        child: Text(
+                          LanguageService.isTamil ? 'தமிழ் (Tamil)' : 'English',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF15803D),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _green,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 44),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                  label: Text(
+                    'change_language'.tr,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  onPressed: _openLanguageSelectionModal,
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -1318,26 +1645,19 @@ class _ProfileTabState extends State<ProfileTab> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.business_outlined, color: Colors.blue, size: 22),
-                    ),
+                    const AppLogo(size: 42, compact: true),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _enterprise?['company_name'] ?? 'Amudham / Milk ERP Enterprises',
+                            _enterprise?['company_name'] ?? 'Sri Aashikaa Raw Milk',
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                           ),
-                          const Text(
-                            'Official Enterprise Details (Server Settings)',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
+                          Text(
+                            'enterprise_details_subtitle'.tr,
+                            style: const TextStyle(color: Colors.grey, fontSize: 11),
                           ),
                         ],
                       ),
@@ -1345,12 +1665,44 @@ class _ProfileTabState extends State<ProfileTab> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                _detailRow(Icons.receipt_outlined, 'GST Number',
+                _detailRow(Icons.receipt_outlined, 'gst_number'.tr,
                     _enterprise?['gst_number'] ?? '33AAAAA0000A1Z5'),
-                _detailRow(Icons.location_city_outlined, 'Head Office',
+                _detailRow(Icons.location_city_outlined, 'head_office'.tr,
                     _enterprise?['head_office_address'] ?? 'Plot 42, Dairy Tech Park, Salem'),
-                _detailRow(Icons.storefront_outlined, 'Central Hub',
+                _detailRow(Icons.storefront_outlined, 'central_hub'.tr,
                     _enterprise?['branch_address'] ?? 'Salem Central Hub, Meyyanur Bypass, Salem - 636004'),
+                Builder(builder: (_) {
+                  final lat = _enterprise?['office_latitude'] ?? 11.664325;
+                  final lng = _enterprise?['office_longitude'] ?? 78.146014;
+                  final mapUrl = _enterprise?['google_maps_url']?.toString() ?? 'https://maps.google.com/?q=$lat,$lng';
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: InkWell(
+                      onTap: () => _launchURL(mapUrl),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_on_outlined, size: 16, color: _green),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'View Office on Google Maps / Directions',
+                                style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            Icon(Icons.directions_outlined, size: 16, color: Colors.blue.shade800),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
                 if (_enterprise?['website_url'] != null) ...[
                   const Divider(height: 16),
                   InkWell(
@@ -1361,9 +1713,9 @@ class _ProfileTabState extends State<ProfileTab> {
                         children: [
                           const Icon(Icons.language_outlined, size: 18, color: Colors.blue),
                           const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text('Official Website',
-                                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          Expanded(
+                            child: Text('official_website'.tr,
+                                style: const TextStyle(color: Colors.grey, fontSize: 13)),
                           ),
                           Text(
                             _enterprise!['website_url'].toString(),
@@ -1392,25 +1744,25 @@ class _ProfileTabState extends State<ProfileTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.headset_mic_outlined, color: _green),
-                    SizedBox(width: 8),
-                    Text('Customer Care Support',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const Icon(Icons.headset_mic_outlined, color: _green),
+                    const SizedBox(width: 8),
+                    Text('customer_support_title'.tr,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                    'Have questions or need assistance with your daily delivery? Contact our team anytime.',
-                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                Text(
+                    'customer_support_desc'.tr,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(height: 16),
 
                 // WhatsApp Help Desk Button
                 Builder(builder: (_) {
                   final rawPhone = _enterprise?['support_phone'] ?? _enterprise?['secondary_phone'] ?? '919876543210';
                   final cleanDigits = rawPhone.toString().replaceAll(RegExp(r'[^0-9]'), '');
-                  final compName = _enterprise?['company_name'] ?? 'Amudham Milk';
+                  final compName = _enterprise?['company_name'] ?? 'Sri Aashikaa Raw Milk';
                   final waUrl = 'https://wa.me/$cleanDigits?text=Hello%20${Uri.encodeComponent(compName)}%20Support';
 
                   return InkWell(
@@ -1430,12 +1782,12 @@ class _ProfileTabState extends State<ProfileTab> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('WhatsApp Help Desk',
-                                    style: TextStyle(
+                                Text('whatsapp_helpdesk'.tr,
+                                    style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: Color(0xFF15803D),
                                         fontSize: 13)),
-                                Text('Instant chat assistance • $rawPhone',
+                                Text(tr('prof_instant_chat', {'phone': '$rawPhone'}),
                                     style: const TextStyle(
                                         color: Color(0xFF166534), fontSize: 11)),
                               ],
@@ -1472,8 +1824,8 @@ class _ProfileTabState extends State<ProfileTab> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Call Support Desk',
-                                    style: TextStyle(
+                                Text('call_support'.tr,
+                                    style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: Color(0xFF0F172A),
                                         fontSize: 13)),
@@ -1494,7 +1846,7 @@ class _ProfileTabState extends State<ProfileTab> {
 
                 // Email Support Button
                 Builder(builder: (_) {
-                  final email = _enterprise?['support_email'] ?? 'contact@amudhammilk.com';
+                  final email = _enterprise?['support_email'] ?? 'contact@sriaashikaamilk.com';
                   return InkWell(
                     onTap: () => _launchURL('mailto:$email'),
                     child: Container(
@@ -1512,8 +1864,8 @@ class _ProfileTabState extends State<ProfileTab> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Email Customer Support',
-                                    style: TextStyle(
+                                Text('email_support'.tr,
+                                    style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: Color(0xFF0F172A),
                                         fontSize: 13)),
@@ -1534,7 +1886,7 @@ class _ProfileTabState extends State<ProfileTab> {
         ),
         const SizedBox(height: 16),
 
-        // ── 6. App Updates & Version Management (enterprise_settings table) ──
+        // ── 6. App Updates & Version Management (Google Play Store) ──────
         Card(
           elevation: 1.5,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1558,14 +1910,14 @@ class _ProfileTabState extends State<ProfileTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'App Version & Updates',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          Text(
+                            'app_version_title'.tr,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                           ),
                           Text(
                             _updateInfo?['has_update'] == true
-                                ? 'New version v${_updateInfo!['latest_version']} available!'
-                                : 'App is up to date (v${SupabaseAPI.currentAppVersion})',
+                                ? tr('prof_new_ver_avail', {'ver': '${_updateInfo!['latest_version']}'})
+                                : tr('prof_app_up_to_date_ver', {'ver': SupabaseAPI.currentAppVersion}),
                             style: TextStyle(
                               color: _updateInfo?['has_update'] == true
                                   ? const Color(0xFFD97706)
@@ -1587,14 +1939,14 @@ class _ProfileTabState extends State<ProfileTab> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: const Color(0xFFFDE68A)),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.new_releases_rounded, size: 14, color: Color(0xFFD97706)),
-                            SizedBox(width: 4),
+                            const Icon(Icons.new_releases_rounded, size: 14, color: Color(0xFFD97706)),
+                            const SizedBox(width: 4),
                             Text(
-                              'UPDATE',
-                              style: TextStyle(
+                              'prof_update_badge'.tr,
+                              style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFFD97706),
@@ -1620,11 +1972,11 @@ class _ProfileTabState extends State<ProfileTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.smartphone_rounded, size: 16, color: Colors.grey),
-                              SizedBox(width: 8),
-                              Text('Installed Version', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                              const Icon(Icons.smartphone_rounded, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text('installed_version'.tr, style: const TextStyle(fontSize: 13, color: Colors.grey)),
                             ],
                           ),
                           Container(
@@ -1634,7 +1986,7 @@ class _ProfileTabState extends State<ProfileTab> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              'v${SupabaseAPI.currentAppVersion} (Build ${SupabaseAPI.currentBuildNumber})',
+                              'v${SupabaseAPI.currentAppVersion}',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                             ),
                           ),
@@ -1644,11 +1996,11 @@ class _ProfileTabState extends State<ProfileTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.cloud_done_rounded, size: 16, color: Colors.grey),
-                              SizedBox(width: 8),
-                              Text('Latest Server Version', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                              const Icon(Icons.cloud_done_rounded, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text('latest_version'.tr, style: const TextStyle(fontSize: 13, color: Colors.grey)),
                             ],
                           ),
                           Container(
@@ -1660,7 +2012,11 @@ class _ProfileTabState extends State<ProfileTab> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              'v${_updateInfo?['latest_version'] ?? SupabaseAPI.currentAppVersion}',
+                              _updateInfo == null
+                                  ? 'checking'.tr
+                                  : (_updateInfo?['latest_version'] != null
+                                      ? 'v${_updateInfo!['latest_version']}'
+                                      : 'prof_ps_unavailable'.tr),
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -1704,17 +2060,17 @@ class _ProfileTabState extends State<ProfileTab> {
                     children: [
                       const Icon(Icons.autorenew_rounded, color: _green, size: 20),
                       const SizedBox(width: 10),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Auto-Update App',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              'auto_update_app'.tr,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                             ),
                             Text(
-                              'Automatically check releases and notify',
-                              style: TextStyle(color: Colors.grey, fontSize: 11),
+                              'auto_update_desc'.tr,
+                              style: const TextStyle(color: Colors.grey, fontSize: 11),
                             ),
                           ],
                         ),
@@ -1747,7 +2103,7 @@ class _ProfileTabState extends State<ProfileTab> {
                                 child: CircularProgressIndicator(strokeWidth: 2, color: _green),
                               )
                             : const Icon(Icons.refresh_rounded, size: 18),
-                        label: Text(_checkingUpdate ? 'Checking...' : 'Check for Updates'),
+                        label: Text(_checkingUpdate ? 'checking'.tr : 'check_updates_btn'.tr),
                         onPressed: _checkingUpdate ? null : () => _checkAppUpdate(silent: false),
                       ),
                     ),
@@ -1768,7 +2124,9 @@ class _ProfileTabState extends State<ProfileTab> {
                                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                 )
                               : const Icon(Icons.download_rounded, size: 18),
-                          label: Text(_isUpdating ? 'Updating...' : (kIsWeb ? 'Update & Refresh' : 'Update Now')),
+                          label: Text(_isUpdating
+                              ? 'prof_updating_btn'.tr
+                              : (kIsWeb ? 'prof_update_refresh'.tr : 'update_now_btn'.tr)),
                           onPressed: _isUpdating ? null : () => _performAppUpdate(_updateInfo!),
                         ),
                       ),
@@ -1804,17 +2162,17 @@ class _ProfileTabState extends State<ProfileTab> {
                       child: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 22),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Account Session',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            'prof_acc_session'.tr,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                           ),
                           Text(
-                            'Sign out of your customer account on this device',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
+                            'prof_acc_session_desc'.tr,
+                            style: const TextStyle(color: Colors.grey, fontSize: 11),
                           ),
                         ],
                       ),
@@ -1832,9 +2190,9 @@ class _ProfileTabState extends State<ProfileTab> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     icon: const Icon(Icons.logout, size: 18),
-                    label: const Text(
-                      'Log Out',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    label: Text(
+                      'logout_btn'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     onPressed: () => _confirmLogout(context),
                   ),
@@ -1869,17 +2227,17 @@ class _ProfileTabState extends State<ProfileTab> {
                       child: const Icon(Icons.no_accounts_rounded, color: Colors.red, size: 22),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Deactivate Account',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF991B1B)),
+                            'deactivate_account_title'.tr,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF991B1B)),
                           ),
                           Text(
-                            'Cancel active subscriptions, bottle allocations & close account',
-                            style: TextStyle(color: Color(0xFF7F1D1D), fontSize: 11),
+                            'deactivate_account_desc'.tr,
+                            style: const TextStyle(color: Color(0xFF7F1D1D), fontSize: 11),
                           ),
                         ],
                       ),
@@ -1894,15 +2252,15 @@ class _ProfileTabState extends State<ProfileTab> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: const Color(0xFFFECACA)),
                   ),
-                  child: const Row(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline_rounded, size: 16, color: Colors.redAccent),
-                      SizedBox(width: 8),
+                      const Icon(Icons.info_outline_rounded, size: 16, color: Colors.redAccent),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Tap below to open terms & conditions, review consequences, and confirm permanent account deactivation.',
-                          style: TextStyle(fontSize: 11.5, color: Color(0xFF475569), height: 1.35),
+                          'prof_deactivate_tap_info'.tr,
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569), height: 1.35),
                         ),
                       ),
                     ],
@@ -1919,9 +2277,9 @@ class _ProfileTabState extends State<ProfileTab> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     icon: const Icon(Icons.delete_forever_rounded, size: 18),
-                    label: const Text(
-                      'Deactivate Account ➔',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    label: Text(
+                      '${'deactivate_account_btn'.tr} ➔',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     onPressed: () {
                       Navigator.push(
@@ -1941,11 +2299,12 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  String _safeDisplay(dynamic value, [String fallback = 'Not set']) {
-    if (value == null) return fallback;
+  String _safeDisplay(dynamic value, [String? fallback]) {
+    final effectiveFallback = fallback ?? 'prof_not_set'.tr;
+    if (value == null) return effectiveFallback;
     final str = value.toString().trim();
     if (str.isEmpty || str.toLowerCase() == 'null' || str == 'undefined' || str == '-') {
-      return fallback;
+      return effectiveFallback;
     }
     return str;
   }
@@ -1976,7 +2335,7 @@ class _ProfileTabState extends State<ProfileTab> {
         addr = pin;
       }
     }
-    return addr.isNotEmpty ? addr : 'Not set';
+    return addr.isNotEmpty ? addr : 'prof_not_set'.tr;
   }
 
   Widget _detailRow(IconData icon, String label, String value) {
@@ -2027,17 +2386,17 @@ class _ProfileTabState extends State<ProfileTab> {
               child: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 22),
             ),
             const SizedBox(width: 10),
-            const Text('Log Out', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('logout_confirm_title'.tr, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
-        content: const Text(
-          'Are you sure you want to log out of your account on this device?',
-          style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+        content: Text(
+          'logout_confirm_msg'.tr,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text('cancel'.tr, style: const TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -2055,7 +2414,7 @@ class _ProfileTabState extends State<ProfileTab> {
                 (route) => false,
               );
             },
-            child: const Text('Yes, Log Out', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text('yes_logout'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

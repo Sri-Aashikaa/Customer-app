@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -194,18 +195,18 @@ class _DepositTabState extends State<DepositTab> {
                                 color: _green, size: 22),
                           ),
                           const SizedBox(width: 10),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Raise Deposit Refund',
-                                style: TextStyle(
+                                'dep_raise_refund_title'.tr,
+                                style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                               Text(
-                                '100% money-back guarantee on bottle return',
-                                style:
-                                    TextStyle(fontSize: 11, color: Colors.grey),
+                                'dep_money_back_guarantee'.tr,
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
                               ),
                             ],
                           ),
@@ -236,9 +237,9 @@ class _DepositTabState extends State<DepositTab> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Refund Claim Amount',
-                              style: TextStyle(
+                            Text(
+                              'dep_claim_amount'.tr,
+                              style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600),
@@ -262,13 +263,13 @@ class _DepositTabState extends State<DepositTab> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Row(
+                          child: Row(
                             children: [
-                              Icon(Icons.shield_outlined,
+                              const Icon(Icons.shield_outlined,
                                   color: _green, size: 14),
-                              SizedBox(width: 4),
-                              Text('100% Refundable',
-                                  style: TextStyle(
+                              const SizedBox(width: 4),
+                              Text('dep_100_refundable'.tr,
+                                  style: const TextStyle(
                                       color: _green,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 11)),
@@ -281,9 +282,9 @@ class _DepositTabState extends State<DepositTab> {
                   const SizedBox(height: 16),
 
                   // Refund Type Switcher
-                  const Text('Refund Claim Scope',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('dep_claim_scope'.tr,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -321,15 +322,15 @@ class _DepositTabState extends State<DepositTab> {
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
-                                    const Text('Full Refund',
-                                        style: TextStyle(
+                                    Text('dep_full_refund'.tr,
+                                        style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12)),
                                   ],
                                 ),
                                 const SizedBox(height: 2),
-                                const Text('Return all bottles & ice box',
-                                    style: TextStyle(
+                                Text('dep_full_refund_sub'.tr,
+                                    style: const TextStyle(
                                         fontSize: 10, color: Colors.grey)),
                               ],
                             ),
@@ -371,15 +372,15 @@ class _DepositTabState extends State<DepositTab> {
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
-                                    const Text('Partial Refund',
-                                        style: TextStyle(
+                                    Text('dep_partial_refund'.tr,
+                                        style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12)),
                                   ],
                                 ),
                                 const SizedBox(height: 2),
-                                const Text('Return surplus assets only',
-                                    style: TextStyle(
+                                Text('dep_partial_refund_sub'.tr,
+                                    style: const TextStyle(
                                         fontSize: 10, color: Colors.grey)),
                               ],
                             ),
@@ -402,15 +403,16 @@ class _DepositTabState extends State<DepositTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Select Assets Being Returned:',
-                              style: TextStyle(
+                          Text('dep_select_assets_return'.tr,
+                              style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF0F172A))),
                           const SizedBox(height: 8),
                           if (count1L > 0)
                             _refundCounterRow(
-                              '1.0L Bottle (₹${_bottle1LDeposit.toInt()} each)',
+                              tr('dep_bottle_1l_each',
+                                  {'amt': '${_bottle1LDeposit.toInt()}'}),
                               return1L,
                               count1L,
                               (val) => setModalState(() => return1L = val),
@@ -418,7 +420,8 @@ class _DepositTabState extends State<DepositTab> {
                           if (count05L > 0) ...[
                             const SizedBox(height: 6),
                             _refundCounterRow(
-                              '0.5L Bottle (₹${_bottle05LDeposit.toInt()} each)',
+                              tr('dep_bottle_05l_each',
+                                  {'amt': '${_bottle05LDeposit.toInt()}'}),
                               return05L,
                               count05L,
                               (val) => setModalState(() => return05L = val),
@@ -427,7 +430,8 @@ class _DepositTabState extends State<DepositTab> {
                           if (countIceBox > 0) ...[
                             const SizedBox(height: 6),
                             _refundCounterRow(
-                              'Ice Box (₹${_iceBoxDepositAmount.toInt()})',
+                              tr('dep_ice_box_amt',
+                                  {'amt': '${_iceBoxDepositAmount.toInt()}'}),
                               returnIceBox,
                               countIceBox,
                               (val) =>
@@ -451,13 +455,13 @@ class _DepositTabState extends State<DepositTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
-                            Icon(Icons.account_balance, size: 16, color: _green),
-                            SizedBox(width: 6),
+                            const Icon(Icons.account_balance, size: 16, color: _green),
+                            const SizedBox(width: 6),
                             Text(
-                              'Refund Payout Bank Account',
-                              style: TextStyle(
+                              'dep_payout_bank_title'.tr,
+                              style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF0F172A)),
@@ -465,9 +469,9 @@ class _DepositTabState extends State<DepositTab> {
                           ],
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Direct bank deposit upon bottle inspection & collection',
-                          style: TextStyle(fontSize: 10, color: Colors.grey),
+                        Text(
+                          'dep_payout_bank_sub'.tr,
+                          style: const TextStyle(fontSize: 10, color: Colors.grey),
                         ),
                         const SizedBox(height: 10),
 
@@ -475,8 +479,8 @@ class _DepositTabState extends State<DepositTab> {
                           controller: accountNumberCtrl,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
-                            labelText: 'Bank Account Number *',
-                            hintText: 'Enter bank account number',
+                            labelText: 'dep_bank_acc_label'.tr,
+                            hintText: 'dep_bank_acc_hint'.tr,
                             prefixIcon: const Icon(Icons.numbers,
                                 color: _green, size: 20),
                             border: OutlineInputBorder(
@@ -491,8 +495,8 @@ class _DepositTabState extends State<DepositTab> {
                           controller: confirmAccountNumberCtrl,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
-                            labelText: 'Re-Enter Bank Account Number *',
-                            hintText: 'Re-enter to confirm',
+                            labelText: 'dep_bank_reacc_label'.tr,
+                            hintText: 'dep_bank_reacc_hint'.tr,
                             prefixIcon: const Icon(Icons.check_circle_outline,
                                 color: _green, size: 20),
                             border: OutlineInputBorder(
@@ -510,8 +514,8 @@ class _DepositTabState extends State<DepositTab> {
                                 controller: ifscCtrl,
                                 textCapitalization: TextCapitalization.characters,
                                 decoration: InputDecoration(
-                                  labelText: 'IFSC Code *',
-                                  hintText: 'e.g. SBIN0001234',
+                                  labelText: 'dep_ifsc_label'.tr,
+                                  hintText: 'dep_ifsc_hint'.tr,
                                   border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10)),
                                   contentPadding: const EdgeInsets.symmetric(
@@ -524,8 +528,8 @@ class _DepositTabState extends State<DepositTab> {
                               child: TextField(
                                 controller: bankNameCtrl,
                                 decoration: InputDecoration(
-                                  labelText: 'Bank Name',
-                                  hintText: 'e.g. SBI, HDFC',
+                                  labelText: 'dep_bank_name_label'.tr,
+                                  hintText: 'dep_bank_name_hint'.tr,
                                   border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10)),
                                   contentPadding: const EdgeInsets.symmetric(
@@ -540,8 +544,8 @@ class _DepositTabState extends State<DepositTab> {
                         TextField(
                           controller: accountHolderCtrl,
                           decoration: InputDecoration(
-                            labelText: 'Account Holder Name',
-                            hintText: 'Name as per bank records',
+                            labelText: 'dep_acc_holder_label'.tr,
+                            hintText: 'dep_acc_holder_hint'.tr,
                             prefixIcon: const Icon(Icons.person_outline,
                                 color: _green, size: 20),
                             border: OutlineInputBorder(
@@ -556,9 +560,9 @@ class _DepositTabState extends State<DepositTab> {
                   const SizedBox(height: 14),
 
                   // Handover Date Selector
-                  const Text('Asset Handover Date to Delivery Partner',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('dep_handover_date'.tr,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   InkWell(
                     onTap: () async {
@@ -600,8 +604,7 @@ class _DepositTabState extends State<DepositTab> {
                                   color: _green, size: 18),
                               const SizedBox(width: 10),
                               Text(
-                                DateFormat('EEEE, dd MMMM yyyy')
-                                    .format(handoverDate),
+                                LanguageService.formatFullDayDate(handoverDate),
                                 style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
@@ -609,8 +612,8 @@ class _DepositTabState extends State<DepositTab> {
                               ),
                             ],
                           ),
-                          const Text('Change 📅',
-                              style: TextStyle(
+                          Text('dep_change_date'.tr,
+                              style: const TextStyle(
                                   color: _green,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12)),
@@ -621,9 +624,9 @@ class _DepositTabState extends State<DepositTab> {
                   const SizedBox(height: 14),
 
                   // Reason for refund
-                  const Text('Reason for Refund Request',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('dep_reason_title'.tr,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<String>(
                     initialValue: selectedReason,
@@ -633,24 +636,25 @@ class _DepositTabState extends State<DepositTab> {
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
                     ),
-                    items: const [
+                    items: [
                       DropdownMenuItem(
                           value: 'Moving out / Relocating',
-                          child: Text('Moving out / Relocating')),
+                          child: Text('dep_reason_relocating'.tr)),
                       DropdownMenuItem(
                           value: 'Discontinuing milk subscription',
-                          child: Text('Discontinuing milk subscription')),
+                          child: Text('dep_reason_discontinuing'.tr)),
                       DropdownMenuItem(
                           value: 'Returning excess / extra bottles',
-                          child: Text('Returning excess / extra bottles')),
+                          child: Text('dep_reason_excess'.tr)),
                       DropdownMenuItem(
                           value: 'Ice box no longer required',
-                          child: Text('Ice box no longer required')),
+                          child: Text('dep_reason_icebox'.tr)),
                       DropdownMenuItem(
                           value: 'Temporary service break',
-                          child: Text('Temporary service break')),
+                          child: Text('dep_reason_break'.tr)),
                       DropdownMenuItem(
-                          value: 'Other reason', child: Text('Other reason')),
+                          value: 'Other reason',
+                          child: Text('dep_reason_other'.tr)),
                     ],
                     onChanged: (val) {
                       if (val != null) {
@@ -664,8 +668,7 @@ class _DepositTabState extends State<DepositTab> {
                     controller: notesCtrl,
                     maxLines: 2,
                     decoration: InputDecoration(
-                      hintText:
-                          'Special instructions for delivery partner (optional)...',
+                      hintText: 'dep_instructions_hint'.tr,
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
                       contentPadding: const EdgeInsets.all(12),
@@ -681,15 +684,15 @@ class _DepositTabState extends State<DepositTab> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: const Row(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.info_outline, size: 16, color: _green),
-                        SizedBox(width: 8),
+                        const Icon(Icons.info_outline, size: 16, color: _green),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Your delivery partner will collect clean, intact glass bottles on the handover date. Refund amount will be credited to your account within 24 hours of collection.',
-                            style: TextStyle(
+                            'dep_collection_info'.tr,
+                            style: const TextStyle(
                                 fontSize: 11,
                                 color: Color(0xFF475569),
                                 height: 1.3),
@@ -715,9 +718,8 @@ class _DepositTabState extends State<DepositTab> {
                         : () async {
                             if (calculatedRefund <= 0) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'Please select at least 1 asset to refund.')),
+                                SnackBar(
+                                    content: Text('dep_err_select_asset'.tr)),
                               );
                               return;
                             }
@@ -729,22 +731,22 @@ class _DepositTabState extends State<DepositTab> {
 
                             if (accNo.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Please enter your Bank Account Number.')),
+                                SnackBar(
+                                    content: Text('dep_err_acc_empty'.tr)),
                               );
                               return;
                             }
                             if (confirmAccNo != accNo) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Account numbers do not match. Please verify.')),
+                                SnackBar(
+                                    content: Text('dep_err_acc_mismatch'.tr)),
                               );
                               return;
                             }
                             if (ifsc.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Please enter your Bank IFSC Code.')),
+                                SnackBar(
+                                    content: Text('dep_err_ifsc_empty'.tr)),
                               );
                               return;
                             }
@@ -772,8 +774,10 @@ class _DepositTabState extends State<DepositTab> {
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                      '✅ Security Deposit Refund Request Raised!\nReference: $ref\nAmount: ₹${calculatedRefund.toInt()}'),
+                                  content: Text(tr('dep_refund_ok', {
+                                    'ref': ref,
+                                    'amt': '${calculatedRefund.toInt()}',
+                                  })),
                                   backgroundColor: _green,
                                   behavior: SnackBarBehavior.floating,
                                   duration: const Duration(seconds: 4),
@@ -787,7 +791,7 @@ class _DepositTabState extends State<DepositTab> {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content:
-                                      Text('Failed to raise refund: $e'),
+                                      Text(tr('dep_refund_err', {'err': '$e'})),
                                   backgroundColor: Colors.red,
                                 ),
                               );
@@ -801,7 +805,8 @@ class _DepositTabState extends State<DepositTab> {
                                 color: Colors.white, strokeWidth: 2),
                           )
                         : Text(
-                            'Submit Refund Request (₹${calculatedRefund.toInt()}) ➔',
+                            tr('dep_submit_refund_btn',
+                                {'amt': '${calculatedRefund.toInt()}'}),
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 14),
                           ),
@@ -864,9 +869,9 @@ class _DepositTabState extends State<DepositTab> {
                                 color: Colors.red, size: 22),
                           ),
                           const SizedBox(width: 10),
-                          const Text(
-                            'Report Broken Bottle',
-                            style: TextStyle(
+                          Text(
+                            'dep_report_broken_title'.tr,
+                            style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ],
@@ -879,20 +884,21 @@ class _DepositTabState extends State<DepositTab> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Let us know if a glass bottle broke so your delivery partner brings a replacement bottle on the next delivery.',
+                    'dep_report_broken_desc'.tr,
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 16),
 
-                  const Text('Select Bottle Type',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('dep_select_bottle_type'.tr,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     children: [
                       ChoiceChip(
-                        label: Text('1.0L Bottle (₹${_bottle1LDeposit.toInt()})'),
+                        label: Text(tr('dep_bottle_1l_chip',
+                            {'amt': '${_bottle1LDeposit.toInt()}'})),
                         selected: selectedType == '1.0 Liter Glass Bottle',
                         onSelected: (sel) {
                           if (sel) {
@@ -910,7 +916,8 @@ class _DepositTabState extends State<DepositTab> {
                         ),
                       ),
                       ChoiceChip(
-                        label: Text('0.5L Bottle (₹${_bottle05LDeposit.toInt()})'),
+                        label: Text(tr('dep_bottle_05l_chip',
+                            {'amt': '${_bottle05LDeposit.toInt()}'})),
                         selected: selectedType == '0.5 Liter Glass Bottle',
                         onSelected: (sel) {
                           if (sel) {
@@ -931,9 +938,9 @@ class _DepositTabState extends State<DepositTab> {
                   ),
                   const SizedBox(height: 14),
 
-                  const Text('What happened?',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('dep_what_happened'.tr,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<String>(
                     initialValue: selectedReason,
@@ -943,21 +950,22 @@ class _DepositTabState extends State<DepositTab> {
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
                     ),
-                    items: const [
+                    items: [
                       DropdownMenuItem(
                           value: 'Accidentally slipped / cracked',
-                          child: Text('Accidentally slipped / cracked')),
+                          child: Text('dep_broke_slipped'.tr)),
                       DropdownMenuItem(
                           value: 'Found hairline crack before opening',
-                          child: Text('Found hairline crack before opening')),
+                          child: Text('dep_broke_hairline'.tr)),
                       DropdownMenuItem(
                           value: 'Broken during cleaning',
-                          child: Text('Broken during cleaning')),
+                          child: Text('dep_broke_cleaning'.tr)),
                       DropdownMenuItem(
                           value: 'Cap / Neck chipped',
-                          child: Text('Cap / Neck chipped')),
+                          child: Text('dep_broke_chipped'.tr)),
                       DropdownMenuItem(
-                          value: 'Other reason', child: Text('Other reason')),
+                          value: 'Other reason',
+                          child: Text('dep_reason_other'.tr)),
                     ],
                     onChanged: (val) {
                       if (val != null) {
@@ -971,7 +979,7 @@ class _DepositTabState extends State<DepositTab> {
                     controller: notesCtrl,
                     maxLines: 2,
                     decoration: InputDecoration(
-                      hintText: 'Additional notes or remarks (optional)...',
+                      hintText: 'dep_broke_notes_hint'.tr,
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
                       contentPadding: const EdgeInsets.all(12),
@@ -988,16 +996,16 @@ class _DepositTabState extends State<DepositTab> {
                           borderRadius: BorderRadius.circular(12)),
                     ),
                     icon: const Icon(Icons.chat, size: 18),
-                    label: const Text(
-                      'Report via WhatsApp Support ➔',
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    label: Text(
+                      'dep_report_wa_btn'.tr,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                     onPressed: () {
                       Navigator.pop(modalCtx);
                       final note = notesCtrl.text.trim();
                       final message =
-                          'Hello Amudham Dairy Support,\n\nI want to report a broken glass bottle:\n• Customer: $custName (ID: $custId)\n• Bottle Type: $selectedType\n• Reason: $selectedReason${note.isNotEmpty ? '\n• Notes: $note' : ''}\n\nPlease arrange a replacement bottle on the next delivery. Thank you!';
+                          'Hello Sri Aashikaa Support,\n\nI want to report a broken glass bottle:\n• Customer: $custName (ID: $custId)\n• Bottle Type: $selectedType\n• Reason: $selectedReason${note.isNotEmpty ? '\n• Notes: $note' : ''}\n\nPlease arrange a replacement bottle on the next delivery. Thank you!';
                       _openWhatsApp(supportPhone, message);
                     },
                   ),
@@ -1011,7 +1019,8 @@ class _DepositTabState extends State<DepositTab> {
                           borderRadius: BorderRadius.circular(12)),
                     ),
                     icon: const Icon(Icons.call, size: 16),
-                    label: Text('Call Support Hotline ($supportPhone)'),
+                    label: Text(
+                        tr('dep_call_hotline_btn', {'phone': supportPhone})),
                     onPressed: () {
                       Navigator.pop(modalCtx);
                       _makeCall(supportPhone);
@@ -1177,9 +1186,9 @@ class _DepositTabState extends State<DepositTab> {
                               color: Colors.white, size: 20),
                         ),
                         const SizedBox(width: 10),
-                        const Text(
-                          'Security Deposit',
-                          style: TextStyle(
+                        Text(
+                          'dep_security_deposit_title'.tr,
+                          style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.bold),
@@ -1211,12 +1220,12 @@ class _DepositTabState extends State<DepositTab> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.verified, color: _green, size: 14),
-                            SizedBox(width: 4),
-                            Text('100% Refundable',
-                                style: TextStyle(
+                            const Icon(Icons.verified, color: _green, size: 14),
+                            const SizedBox(width: 4),
+                            Text('dep_100_refundable'.tr,
+                                style: const TextStyle(
                                     color: _green,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold)),
@@ -1234,9 +1243,9 @@ class _DepositTabState extends State<DepositTab> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Total Deposit Balance',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 12)),
+                        Text('dep_total_deposit_bal'.tr,
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12)),
                         const SizedBox(height: 4),
                         Text(
                           '₹${totalDepositPaid.toStringAsFixed(0)}',
@@ -1256,7 +1265,7 @@ class _DepositTabState extends State<DepositTab> {
                       ),
                       icon: const Icon(Icons.refresh,
                           color: Colors.white, size: 18),
-                      tooltip: 'Reload Live Ledger',
+                      tooltip: 'dep_reload_ledger'.tr,
                       onPressed: _loadServerData,
                     ),
                   ],
@@ -1272,17 +1281,17 @@ class _DepositTabState extends State<DepositTab> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _heroDepositItem(
-                          '1.0L Bottles', '₹${bottle1LDepositTotal.toInt()}'),
+                      _heroDepositItem('dep_1l_bottles'.tr,
+                          '₹${bottle1LDepositTotal.toInt()}'),
+                      Container(width: 1, height: 22, color: Colors.white24),
+                      _heroDepositItem('dep_05l_bottles'.tr,
+                          '₹${bottle05LDepositTotal.toInt()}'),
                       Container(width: 1, height: 22, color: Colors.white24),
                       _heroDepositItem(
-                          '0.5L Bottles', '₹${bottle05LDepositTotal.toInt()}'),
+                          'dep_ice_box'.tr, '₹${iceBoxDepositTotal.toInt()}'),
                       Container(width: 1, height: 22, color: Colors.white24),
                       _heroDepositItem(
-                          'Ice Box', '₹${iceBoxDepositTotal.toInt()}'),
-                      Container(width: 1, height: 22, color: Colors.white24),
-                      _heroDepositItem(
-                          'Refundable', '₹${pendingRefund.toInt()}'),
+                          'dep_refundable'.tr, '₹${pendingRefund.toInt()}'),
                     ],
                   ),
                 ),
@@ -1305,7 +1314,8 @@ class _DepositTabState extends State<DepositTab> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Refund Request Under Review • ₹${pendingRefund.toInt()} will be credited after bottle handover.',
+                            tr('dep_refund_under_review',
+                                {'amt': '${pendingRefund.toInt()}'}),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -1335,8 +1345,8 @@ class _DepositTabState extends State<DepositTab> {
                         size: 18, color: Color(0xFF047857)),
                     label: Text(
                       hasPendingRefundRequest
-                          ? 'View / Raise Another Refund Request ➔'
-                          : 'Raise Security Deposit Refund ➔',
+                          ? 'dep_view_another_refund_btn'.tr
+                          : 'dep_raise_sec_refund_btn'.tr,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1382,15 +1392,15 @@ class _DepositTabState extends State<DepositTab> {
                                 color: _green, size: 20),
                           ),
                           const SizedBox(width: 10),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Assets in Hand',
-                                  style: TextStyle(
+                              Text('dep_assets_in_hand'.tr,
+                                  style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold)),
-                              Text('Reusable delivery assets currently with you',
-                                  style: TextStyle(
+                              Text('dep_assets_in_hand_sub'.tr,
+                                  style: const TextStyle(
                                       color: Colors.grey, fontSize: 11)),
                             ],
                           ),
@@ -1404,7 +1414,8 @@ class _DepositTabState extends State<DepositTab> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${intactBottlesInHand + countIceBox} Total Assets',
+                          tr('dep_total_assets_count',
+                              {'count': '${intactBottlesInHand + countIceBox}'}),
                           style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -1420,12 +1431,15 @@ class _DepositTabState extends State<DepositTab> {
                     icon: Icons.liquor,
                     iconColor: _green,
                     iconBg: const Color(0xFFDCFCE7),
-                    title: '1.0 Liter Glass Bottle (1000ml)',
-                    countText: '$count1L in hand',
-                    rateText: '₹${_bottle1LDeposit.toInt()} deposit / unit',
-                    totalDepositText: '₹${bottle1LDepositTotal.toInt()} held',
+                    title: 'dep_1l_glass_title'.tr,
+                    countText:
+                        tr('dep_count_in_hand', {'count': '$count1L'}),
+                    rateText: tr('dep_rate_per_unit',
+                        {'amt': '${_bottle1LDeposit.toInt()}'}),
+                    totalDepositText: tr('dep_amount_held',
+                        {'amt': '${bottle1LDepositTotal.toInt()}'}),
                     isActive: count1L > 0,
-                    note: 'Pure glass container for fresh cow milk',
+                    note: 'dep_1l_note'.tr,
                   ),
                   const SizedBox(height: 10),
 
@@ -1434,12 +1448,15 @@ class _DepositTabState extends State<DepositTab> {
                     icon: Icons.local_drink_outlined,
                     iconColor: const Color(0xFF0284C7),
                     iconBg: const Color(0xFFE0F2FE),
-                    title: '0.5 Liter Glass Bottle (500ml)',
-                    countText: '$count05L in hand',
-                    rateText: '₹${_bottle05LDeposit.toInt()} deposit / unit',
-                    totalDepositText: '₹${bottle05LDepositTotal.toInt()} held',
+                    title: 'dep_05l_glass_title'.tr,
+                    countText:
+                        tr('dep_count_in_hand', {'count': '$count05L'}),
+                    rateText: tr('dep_rate_per_unit',
+                        {'amt': '${_bottle05LDeposit.toInt()}'}),
+                    totalDepositText: tr('dep_amount_held',
+                        {'amt': '${bottle05LDepositTotal.toInt()}'}),
                     isActive: count05L > 0,
-                    note: 'Compact dairy glass bottle for half-liter deliveries',
+                    note: 'dep_05l_note'.tr,
                   ),
                   const SizedBox(height: 10),
 
@@ -1448,16 +1465,18 @@ class _DepositTabState extends State<DepositTab> {
                     icon: Icons.kitchen_outlined,
                     iconColor: const Color(0xFF9333EA),
                     iconBg: const Color(0xFFF3E8FF),
-                    title: 'Insulated Cold-Chain Ice Box',
-                    countText: countIceBox > 0 ? '1 in hand' : 'Not Opted',
-                    rateText:
-                        '₹${_iceBoxDepositAmount.toInt()} refundable deposit',
+                    title: 'dep_ice_box_full_title'.tr,
+                    countText: countIceBox > 0
+                        ? tr('dep_count_in_hand', {'count': '1'})
+                        : 'dep_not_opted'.tr,
+                    rateText: tr('dep_ice_box_rate_note',
+                        {'amt': '${_iceBoxDepositAmount.toInt()}'}),
                     totalDepositText: countIceBox > 0
-                        ? '₹${iceBoxDepositTotal.toInt()} held'
+                        ? tr('dep_amount_held',
+                            {'amt': '${iceBoxDepositTotal.toInt()}'})
                         : '₹0',
                     isActive: countIceBox > 0,
-                    note:
-                        'Preserves milk temperature and freshness at doorstep',
+                    note: 'dep_ice_box_note'.tr,
                   ),
 
                   const SizedBox(height: 14),
@@ -1468,14 +1487,14 @@ class _DepositTabState extends State<DepositTab> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.autorenew, color: _green, size: 18),
-                        SizedBox(width: 8),
+                        const Icon(Icons.autorenew, color: _green, size: 18),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Daily Rotation: Please keep empty rinsed glass bottles outside every morning for delivery partner exchange.',
-                            style: TextStyle(
+                            'dep_daily_rotation_tip'.tr,
+                            style: const TextStyle(
                                 fontSize: 11,
                                 color: Color(0xFF334155),
                                 height: 1.3),
@@ -1522,15 +1541,15 @@ class _DepositTabState extends State<DepositTab> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Bottle Condition & Breakage',
-                                  style: TextStyle(
+                              Text('dep_condition_title'.tr,
+                                  style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold)),
-                              Text('Breakage tracking & damage count',
-                                  style: TextStyle(
+                              Text('dep_condition_sub'.tr,
+                                  style: const TextStyle(
                                       color: Colors.grey, fontSize: 11)),
                             ],
                           ),
@@ -1545,7 +1564,7 @@ class _DepositTabState extends State<DepositTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            '$brokenCount Broken',
+                            tr('dep_broken_badge', {'count': '$brokenCount'}),
                             style: TextStyle(
                                 color: Colors.red.shade800,
                                 fontSize: 11,
@@ -1563,7 +1582,7 @@ class _DepositTabState extends State<DepositTab> {
                         child: _conditionMetricTile(
                           icon: Icons.check_circle_outline,
                           count: '$intactBottlesInHand',
-                          label: 'Good / Intact',
+                          label: 'dep_good_intact'.tr,
                           color: _green,
                           bg: const Color(0xFFECFDF5),
                         ),
@@ -1573,7 +1592,7 @@ class _DepositTabState extends State<DepositTab> {
                         child: _conditionMetricTile(
                           icon: Icons.broken_image_outlined,
                           count: '$brokenCount',
-                          label: 'Broken / Damaged',
+                          label: 'dep_broken_damaged'.tr,
                           color: brokenCount > 0 ? Colors.red : Colors.grey.shade600,
                           bg: brokenCount > 0
                               ? Colors.red.shade50
@@ -1586,7 +1605,7 @@ class _DepositTabState extends State<DepositTab> {
                         child: _conditionMetricTile(
                           icon: Icons.help_outline,
                           count: '$lostCount',
-                          label: 'Lost / Missing',
+                          label: 'dep_lost_missing'.tr,
                           color: lostCount > 0 ? Colors.amber.shade800 : Colors.grey.shade600,
                           bg: lostCount > 0
                               ? Colors.amber.shade50
@@ -1606,14 +1625,14 @@ class _DepositTabState extends State<DepositTab> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: const Color(0xFFBBF7D0)),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
-                          Icon(Icons.check_circle, color: _green, size: 18),
-                          SizedBox(width: 10),
+                          const Icon(Icons.check_circle, color: _green, size: 18),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'All bottles in good intact condition. No breakage or damage reported.',
-                              style: TextStyle(
+                              'dep_all_intact_msg'.tr,
+                              style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF065F46)),
@@ -1637,7 +1656,8 @@ class _DepositTabState extends State<DepositTab> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              '$brokenCount broken bottle(s) recorded on your account. Replacement fee will be adjusted per dairy policy.',
+                              tr('dep_broken_alert_msg',
+                                  {'count': '$brokenCount'}),
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -1652,16 +1672,15 @@ class _DepositTabState extends State<DepositTab> {
                   const Divider(),
                   const SizedBox(height: 8),
 
-                  const Text('Breakage & Replacement Terms',
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text('dep_breakage_terms_title'.tr,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13)),
                   const SizedBox(height: 6),
-                  _policyRow(
-                      '1.0L Bottle breakage deduction / replacement: ₹${_bottle1LDeposit.toInt()}'),
-                  _policyRow(
-                      '0.5L Bottle breakage deduction / replacement: ₹${_bottle05LDeposit.toInt()}'),
-                  _policyRow(
-                      'Notify immediately if a bottle arrives cracked so we can replace it promptly.'),
+                  _policyRow(tr('dep_term_1l_break',
+                      {'amt': '${_bottle1LDeposit.toInt()}'})),
+                  _policyRow(tr('dep_term_05l_break',
+                      {'amt': '${_bottle05LDeposit.toInt()}'})),
+                  _policyRow('dep_term_notify'.tr),
 
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
@@ -1673,8 +1692,8 @@ class _DepositTabState extends State<DepositTab> {
                           borderRadius: BorderRadius.circular(10)),
                     ),
                     icon: const Icon(Icons.report_problem_outlined, size: 16),
-                    label: const Text('Report Broken Bottle to Dairy Desk',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    label: Text('dep_report_btn'.tr,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
                     onPressed: _showReportBrokenBottleDialog,
                   ),
                 ],
@@ -1709,15 +1728,15 @@ class _DepositTabState extends State<DepositTab> {
                                   color: _green, size: 20),
                             ),
                             const SizedBox(width: 10),
-                            const Column(
+                            Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Deposits Ledger',
-                                    style: TextStyle(
+                                Text('dep_ledger_title'.tr,
+                                    style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold)),
-                                Text('Official Supabase security deposit receipts',
-                                    style: TextStyle(
+                                Text('dep_ledger_sub'.tr,
+                                    style: const TextStyle(
                                         color: Colors.grey, fontSize: 11)),
                               ],
                             ),
@@ -1731,7 +1750,8 @@ class _DepositTabState extends State<DepositTab> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            '${depositsList.length} Receipts',
+                            tr('dep_receipts_count',
+                                {'count': '${depositsList.length}'}),
                             style: const TextStyle(
                                 color: _green,
                                 fontSize: 11,
@@ -1771,7 +1791,9 @@ class _DepositTabState extends State<DepositTab> {
                                     style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13)),
-                                Text('Date: ${date.isEmpty ? '-' : date}',
+                                Text(
+                                    tr('dep_date_row',
+                                        {'date': date.isEmpty ? '-' : date}),
                                     style: const TextStyle(
                                         color: Colors.grey, fontSize: 11)),
                               ],
@@ -1792,7 +1814,8 @@ class _DepositTabState extends State<DepositTab> {
                                         .withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  child: Text(status,
+                                  child: Text(
+                                      LanguageService.statusLabel(status),
                                       style: TextStyle(
                                           color:
                                               isHeld ? _green : Colors.orange,
@@ -1822,21 +1845,21 @@ class _DepositTabState extends State<DepositTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('How Bottle Rotation Works',
-                      style:
-                          TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  Text('dep_how_rotation_works'.tr,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      _stepItem('1. Delivery', 'Partner delivers full glass bottles',
+                      _stepItem('dep_step1_title'.tr, 'dep_step1_sub'.tr,
                           Icons.local_shipping_outlined),
                       const Icon(Icons.arrow_forward_ios,
                           size: 12, color: Colors.grey),
-                      _stepItem('2. Fresh Milk', 'Rinse empty bottles after use',
+                      _stepItem('dep_step2_title'.tr, 'dep_step2_sub'.tr,
                           Icons.eco_outlined),
                       const Icon(Icons.arrow_forward_ios,
                           size: 12, color: Colors.grey),
-                      _stepItem('3. Return', 'Hand over empty bottles next morning',
+                      _stepItem('dep_step3_title'.tr, 'dep_step3_sub'.tr,
                           Icons.autorenew),
                     ],
                   ),
@@ -1946,7 +1969,7 @@ class _DepositTabState extends State<DepositTab> {
                             fontSize: 11,
                             color: Colors.grey,
                             fontWeight: FontWeight.w600)),
-                    Text('Deposit: $totalDepositText',
+                    Text(tr('dep_deposit_prefix', {'amt': totalDepositText}),
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,

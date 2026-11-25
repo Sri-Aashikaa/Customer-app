@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/api.dart';
 import '../services/session_service.dart';
+import '../services/security_service.dart';
 import '../services/whatsapp_service.dart';
+import '../services/language_service.dart';
 import '../widgets/location_picker_dialog.dart';
+import '../widgets/app_logo.dart';
 import 'home_screen.dart';
 import 'onboarding_screen.dart';
 
@@ -44,13 +47,13 @@ class _AuthScreenState extends State<AuthScreen>
   // Register Field Error Messages
   String? _regNameError;
   String? _regMobileError;
+  bool _isDuplicateMobileError = false;
   String? _regPassError;
   String? _regAddressError;
 
   // OTP Registration State
   // Step 0 = fill form, Step 1 = OTP sent (verify), Step 2 = verified & registering
   int _regStep = 0;
-  String? _generatedOtp;
   bool _otpVerified = false;
   bool _sendingOtp = false;
 
@@ -94,7 +97,7 @@ class _AuthScreenState extends State<AuthScreen>
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.deniedForever) {
-        _snack('Location permission permanently denied. Please enable in settings.');
+        _snack('auth_loc_perm_settings'.tr);
         return;
       }
       if (!mounted) return;
@@ -108,10 +111,10 @@ class _AuthScreenState extends State<AuthScreen>
         _lngCtrl.text = pos.longitude.toStringAsFixed(6);
         _loading = false;
       });
-      _snack('Location captured successfully!', error: false);
+      _snack('auth_loc_captured'.tr, error: false);
     } catch (e) {
       if (mounted) setState(() => _loading = false);
-      _snack('Could not get location: $e');
+      _snack(tr('auth_loc_error', {'err': '$e'}));
     }
   }
 
@@ -148,7 +151,7 @@ class _AuthScreenState extends State<AuthScreen>
           _regAddressCtrl.text = result['address'].toString();
         }
       });
-      _snack('Delivery location confirmed on map!', error: false);
+      _snack('auth_loc_confirmed_map'.tr, error: false);
     }
   }
 
@@ -164,33 +167,34 @@ class _AuthScreenState extends State<AuthScreen>
 
     // 1. Validate fields & highlight exact missing inputs in red
     setState(() {
-      _regNameError = name.isEmpty ? 'Full Name is required' : null;
+      _isDuplicateMobileError = false;
+      _regNameError = name.isEmpty ? 'auth_name_required'.tr : null;
 
       if (cleanMobile.isEmpty) {
-        _regMobileError = 'Mobile Number cannot be empty';
+        _regMobileError = 'auth_mobile_empty'.tr;
       } else if (cleanMobile.length < 10) {
-        _regMobileError = 'Mobile number must be at least 10 digits';
+        _regMobileError = 'auth_mobile_digits'.tr;
       } else {
         _regMobileError = null;
       }
 
       if (pass.isEmpty) {
-        _regPassError = 'Password is required';
+        _regPassError = 'auth_pass_required'.tr;
       } else if (pass.length < 6) {
-        _regPassError = 'Password must be at least 6 characters';
+        _regPassError = 'auth_pass_min'.tr;
       } else {
         _regPassError = null;
       }
 
       _regAddressError =
-          address.isEmpty ? 'House / Flat Address is required' : null;
+          address.isEmpty ? 'auth_address_required'.tr : null;
     });
 
     if (_regNameError != null ||
         _regMobileError != null ||
         _regPassError != null ||
         _regAddressError != null) {
-      _snack('Please fill in the required fields correctly');
+      _snack('auth_fill_required'.tr);
       return;
     }
 
@@ -212,7 +216,7 @@ class _AuthScreenState extends State<AuthScreen>
           longitude: double.tryParse(_lngCtrl.text),
           notes: 'Customer attempted signup from unserviceable pincode',
         );
-        _showUnserviceableDialog(pincode.isNotEmpty ? pincode : 'Your Area');
+        _showUnserviceableDialog(pincode.isNotEmpty ? pincode : 'auth_your_area'.tr);
         return;
       }
 
@@ -221,18 +225,16 @@ class _AuthScreenState extends State<AuthScreen>
           await SupabaseAPI.isMobileAlreadyRegistered(cleanMobile);
       if (isDuplicate) {
         setState(() {
-          _regMobileError = 'Mobile number $cleanMobile is already registered!';
+          _isDuplicateMobileError = true;
+          _regMobileError = tr('auth_mobile_registered', {'mobile': cleanMobile});
           _sendingOtp = false;
         });
-        _snack(
-            '❌ Mobile number $cleanMobile is already registered! Please switch to Login.');
+        _snack('❌ ${tr('auth_mobile_registered', {'mobile': cleanMobile})}');
         return;
       }
 
-      final otp = (100000 +
-              (DateTime.now().millisecondsSinceEpoch % 900000))
-          .toString();
-      _generatedOtp = otp;
+      final otp = SecurityService.generateSecureOtp();
+      SecurityService.otpManager.issueOtp(cleanMobile, otp);
 
       final sent =
           await WhatsAppService.sendAuthenticationOtp(cleanMobile, otp);
@@ -244,12 +246,12 @@ class _AuthScreenState extends State<AuthScreen>
           _regStep = 1;
           _otpCtrl.clear();
         });
-        _snack('✅ OTP sent to +91 $cleanMobile on WhatsApp!', error: false);
+        _snack(tr('auth_otp_sent', {'mobile': cleanMobile}), error: false);
       } else {
-        _snack('❌ Failed to send OTP. Please check your mobile number.');
+        _snack('auth_otp_send_fail'.tr);
       }
     } catch (e) {
-      _snack('Error sending OTP: $e');
+      _snack(tr('auth_otp_send_err', {'err': '$e'}));
     } finally {
       if (mounted) setState(() => _sendingOtp = false);
     }
@@ -260,19 +262,24 @@ class _AuthScreenState extends State<AuthScreen>
   // ─────────────────────────────────────────────────────────────────────────
   void _verifyOtp() {
     final entered = _otpCtrl.text.trim();
+    final cleanMobile = SecurityService.sanitizeMobileDigits(_regMobileCtrl.text);
+
     if (entered.length != 6) {
-      _snack('Please enter the 6-digit OTP');
+      _snack('auth_enter_6_otp'.tr);
       return;
     }
-    if (entered != _generatedOtp) {
-      _snack('❌ Invalid OTP. Please try again.');
+
+    final verification = SecurityService.otpManager.verifyOtp(cleanMobile, entered);
+    if (!verification.isValid) {
+      _snack('❌ ${verification.message}');
       return;
     }
+
     setState(() {
       _otpVerified = true;
       _regStep = 2;
     });
-    _snack('✅ Mobile number verified successfully!', error: false);
+    _snack('auth_mobile_verified'.tr, error: false);
     _doRegister();
   }
 
@@ -325,10 +332,10 @@ class _AuthScreenState extends State<AuthScreen>
               builder: (_) => OnboardingScreen(customer: user)));
     } catch (e) {
       _snack(e.toString().replaceAll('Exception: ', ''));
+      SecurityService.otpManager.clear();
       setState(() {
         _regStep = 0;
         _otpVerified = false;
-        _generatedOtp = null;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -343,12 +350,12 @@ class _AuthScreenState extends State<AuthScreen>
     final inputPass = _loginPassCtrl.text.trim();
 
     setState(() {
-      _loginMobileError = inputMobile.isEmpty ? 'Mobile Number is required' : null;
-      _loginPassError = inputPass.isEmpty ? 'Password is required' : null;
+      _loginMobileError = inputMobile.isEmpty ? 'auth_mobile_required'.tr : null;
+      _loginPassError = inputPass.isEmpty ? 'auth_pass_required'.tr : null;
     });
 
     if (_loginMobileError != null || _loginPassError != null) {
-      _snack('Please enter Mobile Number and Password');
+      _snack('auth_enter_login_creds'.tr);
       return;
     }
 
@@ -400,9 +407,9 @@ class _AuthScreenState extends State<AuthScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Delivery Notice',
-                style: TextStyle(
+              Text(
+                'delivery_notice'.tr,
+                style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                   color: Color(0xFF0F172A),
@@ -419,7 +426,7 @@ class _AuthScreenState extends State<AuthScreen>
                 child: Column(
                   children: [
                     Text(
-                      'Pincode: $pincode',
+                      '${'pincode'.tr}: $pincode',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -427,10 +434,10 @@ class _AuthScreenState extends State<AuthScreen>
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                    Text(
+                      'unserviceable_notice'.tr,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1E293B),
@@ -441,10 +448,10 @@ class _AuthScreenState extends State<AuthScreen>
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                '✅ We have notified our operations team about your area. You will receive an update as soon as fresh milk delivery opens at your doorstep!',
+              Text(
+                'unserviceable_info'.tr,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -457,7 +464,7 @@ class _AuthScreenState extends State<AuthScreen>
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text('understood_thanks'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -475,7 +482,6 @@ class _AuthScreenState extends State<AuthScreen>
     final otpCtrl = TextEditingController();
     final newPassCtrl = TextEditingController();
     final confirmPassCtrl = TextEditingController();
-    String? generatedOtp;
     bool otpSent = false;
     bool obscureNew = true;
     bool obscureConfirm = true;
@@ -502,9 +508,9 @@ class _AuthScreenState extends State<AuthScreen>
                       child: const Icon(Icons.lock_reset, color: kGreen, size: 22),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Reset Password', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text('OTP via WhatsApp', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('reset_password'.tr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('auth_otp_via_wa'.tr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
                     ])),
                     IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => Navigator.pop(ctx)),
                   ]),
@@ -514,7 +520,7 @@ class _AuthScreenState extends State<AuthScreen>
                     keyboardType: TextInputType.phone,
                     enabled: !otpSent,
                     decoration: InputDecoration(
-                      labelText: 'Registered Mobile Number *',
+                      labelText: 'auth_reg_mobile_req'.tr,
                       prefixIcon: const Icon(Icons.phone_outlined),
                       suffixIcon: otpSent ? const Icon(Icons.check_circle, color: kGreen) : null,
                     ),
@@ -525,21 +531,22 @@ class _AuthScreenState extends State<AuthScreen>
                       icon: sendingOtp
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                           : const Icon(Icons.send, size: 16),
-                      label: Text(sendingOtp ? 'Sending OTP...' : 'Send OTP via WhatsApp 📲'),
+                      label: Text(sendingOtp ? 'auth_sending_otp'.tr : 'auth_send_otp_wa_btn'.tr),
                       onPressed: sendingOtp ? null : () async {
                         final mobile = mobileCtrl.text.trim();
-                        if (mobile.isEmpty) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Please enter your mobile number'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+                        final cleanMobile = SecurityService.sanitizeMobileDigits(mobile);
+                        if (cleanMobile.length < 10) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('auth_valid_mobile_err'.tr), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
                           return;
                         }
                         setStateDialog(() => sendingOtp = true);
-                        final otp = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
-                        generatedOtp = otp;
-                        final sent = await WhatsAppService.sendAuthenticationOtp(mobile, otp);
+                        final otp = SecurityService.generateSecureOtp();
+                        SecurityService.otpManager.issueOtp(cleanMobile, otp);
+                        final sent = await WhatsAppService.sendAuthenticationOtp(cleanMobile, otp);
                         if (!ctx.mounted) return;
                         setStateDialog(() { sendingOtp = false; if (sent) otpSent = true; });
                         ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                          content: Text(sent ? '✅ OTP sent to +91 $mobile on WhatsApp!' : '❌ Failed to send OTP.'),
+                          content: Text(sent ? tr('auth_otp_sent', {'mobile': cleanMobile}) : 'auth_otp_send_fail'.tr),
                           backgroundColor: sent ? kGreen : Colors.red, behavior: SnackBarBehavior.floating,
                         ));
                       },
@@ -549,45 +556,51 @@ class _AuthScreenState extends State<AuthScreen>
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(8)),
-                      child: const Row(children: [
-                        Icon(Icons.check_circle, color: kGreen, size: 16), SizedBox(width: 8),
-                        Expanded(child: Text('OTP sent! Enter it below.', style: TextStyle(fontSize: 12, color: kGreen, fontWeight: FontWeight.w500))),
+                      child: Row(children: [
+                        const Icon(Icons.check_circle, color: kGreen, size: 16), const SizedBox(width: 8),
+                        Expanded(child: Text('auth_otp_valid_5min'.tr, style: const TextStyle(fontSize: 12, color: kGreen, fontWeight: FontWeight.w500))),
                       ]),
                     ),
                     TextField(controller: otpCtrl, keyboardType: TextInputType.number, maxLength: 6,
-                        decoration: const InputDecoration(labelText: 'Enter 6-digit OTP *', prefixIcon: Icon(Icons.pin_outlined), counterText: '')),
+                        decoration: InputDecoration(labelText: 'auth_enter_6_otp_req'.tr, prefixIcon: const Icon(Icons.pin_outlined), counterText: '')),
                     const SizedBox(height: 10),
                     StatefulBuilder(builder: (_, setP) => TextField(controller: newPassCtrl, obscureText: obscureNew,
-                        decoration: InputDecoration(labelText: 'New Password *', prefixIcon: const Icon(Icons.lock_outline),
+                        decoration: InputDecoration(labelText: 'auth_new_pass_req'.tr, prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(icon: Icon(obscureNew ? Icons.visibility_off : Icons.visibility, size: 18), onPressed: () => setP(() => obscureNew = !obscureNew))))),
                     const SizedBox(height: 10),
                     StatefulBuilder(builder: (_, setP) => TextField(controller: confirmPassCtrl, obscureText: obscureConfirm,
-                        decoration: InputDecoration(labelText: 'Confirm New Password *', prefixIcon: const Icon(Icons.lock_outline),
+                        decoration: InputDecoration(labelText: 'auth_confirm_new_pass_req'.tr, prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(icon: Icon(obscureConfirm ? Icons.visibility_off : Icons.visibility, size: 18), onPressed: () => setP(() => obscureConfirm = !obscureConfirm))))),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       icon: resetting ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.lock_reset, size: 16),
-                      label: Text(resetting ? 'Resetting...' : 'Reset Password'),
+                      label: Text(resetting ? 'auth_resetting'.tr : 'reset_password'.tr),
                       onPressed: resetting ? null : () async {
                         final enteredOtp = otpCtrl.text.trim();
                         final newPass = newPassCtrl.text.trim();
                         final confirmPass = confirmPassCtrl.text.trim();
                         final mobile = mobileCtrl.text.trim();
-                        if (enteredOtp != generatedOtp) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('❌ Invalid OTP.'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating)); return;
+                        final cleanMobile = SecurityService.sanitizeMobileDigits(mobile);
+
+                        final verification = SecurityService.otpManager.verifyOtp(cleanMobile, enteredOtp);
+                        if (!verification.isValid) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('❌ ${verification.message}'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+                          return;
                         }
                         if (newPass.isEmpty || newPass.length < 6) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Password must be at least 6 characters'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating)); return;
+                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('auth_pass_min_6'.tr), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+                          return;
                         }
                         if (newPass != confirmPass) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Passwords do not match'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating)); return;
+                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('auth_pass_mismatch'.tr), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+                          return;
                         }
                         setStateDialog(() => resetting = true);
                         try {
-                          await SupabaseAPI.resetCustomerPassword(mobile, newPass);
+                          await SupabaseAPI.resetCustomerPassword(cleanMobile, newPass);
                           if (!ctx.mounted) return;
                           Navigator.pop(ctx);
-                          _snack('✅ Password reset successfully! Please login.', error: false);
+                          _snack('auth_pass_reset_ok'.tr, error: false);
                         } catch (e) {
                           if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
                         } finally {
@@ -598,7 +611,7 @@ class _AuthScreenState extends State<AuthScreen>
                     const SizedBox(height: 8),
                     TextButton.icon(
                       icon: const Icon(Icons.refresh, size: 14),
-                      label: const Text('Resend OTP', style: TextStyle(fontSize: 12)),
+                      label: Text('resend_otp'.tr, style: const TextStyle(fontSize: 12)),
                       onPressed: () => setStateDialog(() => otpSent = false),
                     ),
                   ],
@@ -619,20 +632,54 @@ class _AuthScreenState extends State<AuthScreen>
           padding: const EdgeInsets.all(20),
           child: Column(children: [
             const SizedBox(height: 16),
-            Container(
-              width: 64, height: 64,
-              decoration: BoxDecoration(color: kGreen, borderRadius: BorderRadius.circular(18)),
-              child: const Center(child: Text('🥛', style: TextStyle(fontSize: 32))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const SizedBox(width: 60),
+                const AppLogo(
+                  size: 76,
+                ),
+                InkWell(
+                  onTap: () async {
+                    final next = LanguageService.isTamil ? 'en' : 'ta';
+                    await LanguageService.setLanguage(next);
+                    if (mounted) setState(() {});
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.translate_rounded, size: 14, color: kGreen),
+                        const SizedBox(width: 4),
+                        Text(
+                          LanguageService.isTamil ? 'English' : 'தமிழ்',
+                          style: const TextStyle(color: kGreen, fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
-            const Text('Amudham Raw Milk',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-            const SizedBox(height: 4),
+            Text('app_title'.tr,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+            const SizedBox(height: 2),
+            Text('app_tagline'.tr,
+                style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF64748B))),
+            const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(20)),
-              child: const Text('🟢 Live Supabase Server Connected',
-                  style: TextStyle(color: kGreen, fontSize: 11, fontWeight: FontWeight.w600)),
+              child: Text('live_server_connected'.tr,
+                  style: const TextStyle(color: kGreen, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
             const SizedBox(height: 20),
             Container(
@@ -644,7 +691,7 @@ class _AuthScreenState extends State<AuthScreen>
                 labelColor: Colors.white,
                 unselectedLabelColor: Colors.grey,
                 labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                tabs: const [Tab(text: 'Login'), Tab(text: 'Register')],
+                tabs: [Tab(text: 'login'.tr), Tab(text: 'register'.tr)],
               ),
             ),
             const SizedBox(height: 16),
@@ -667,9 +714,9 @@ class _AuthScreenState extends State<AuthScreen>
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('Customer Login', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          Text('customer_login'.tr, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('Sign in with your registered mobile number', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          Text('login_subtitle'.tr, style: const TextStyle(color: Colors.grey, fontSize: 12)),
           const SizedBox(height: 20),
           TextField(
             controller: _loginMobileCtrl,
@@ -678,7 +725,7 @@ class _AuthScreenState extends State<AuthScreen>
               if (_loginMobileError != null) setState(() => _loginMobileError = null);
             },
             decoration: InputDecoration(
-              labelText: 'Mobile Number *',
+              labelText: 'mobile_number'.tr,
               prefixIcon: const Icon(Icons.phone_outlined),
               errorText: _loginMobileError,
             ),
@@ -691,7 +738,7 @@ class _AuthScreenState extends State<AuthScreen>
               if (_loginPassError != null) setState(() => _loginPassError = null);
             },
             decoration: InputDecoration(
-              labelText: 'Password *',
+              labelText: 'password'.tr,
               prefixIcon: const Icon(Icons.lock_outline),
               errorText: _loginPassError,
               suffixIcon: IconButton(
@@ -704,7 +751,7 @@ class _AuthScreenState extends State<AuthScreen>
           Align(alignment: Alignment.centerRight,
             child: TextButton.icon(
               icon: const Icon(Icons.lock_reset_outlined, size: 15, color: kGreen),
-              label: const Text('Forgot Password?', style: TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
+              label: Text('forgot_password'.tr, style: const TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
               onPressed: _showPasswordResetDialog,
             ),
           ),
@@ -713,12 +760,12 @@ class _AuthScreenState extends State<AuthScreen>
             onPressed: _loading ? null : _doLogin,
             child: _loading
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('Login', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                : Text('login_button'.tr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             icon: const Icon(Icons.person_add_outlined, size: 16, color: kGreen),
-            label: const Text('New Customer? Register here', style: TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
+            label: Text('new_customer_reg'.tr, style: const TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
             onPressed: () => _tabController.animateTo(1),
             style: OutlinedButton.styleFrom(side: const BorderSide(color: kGreen), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
           ),
@@ -736,21 +783,21 @@ class _AuthScreenState extends State<AuthScreen>
 
           // ── Progress Steps Indicator ─────────────────────────────────────
           Row(children: [
-            _stepBadge(1, 'Details', _regStep >= 0),
+            _stepBadge(1, 'step_details'.tr, _regStep >= 0),
             Expanded(child: Divider(color: _regStep >= 1 ? kGreen : Colors.grey.shade300, thickness: 2)),
-            _stepBadge(2, 'Verify OTP', _regStep >= 1),
+            _stepBadge(2, 'step_verify_otp'.tr, _regStep >= 1),
             Expanded(child: Divider(color: _regStep >= 2 ? kGreen : Colors.grey.shade300, thickness: 2)),
-            _stepBadge(3, 'Done', _regStep >= 2),
+            _stepBadge(3, 'step_done'.tr, _regStep >= 2),
           ]),
           const SizedBox(height: 16),
 
           // ─── STEP 0: Fill Account Details ───────────────────────────────
           if (_regStep == 0) ...[
-            const Text('Create Account', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            const Text('Fill in your details and verify via WhatsApp OTP', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text('create_account'.tr, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text('register_subtitle'.tr, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
 
-            _sectionTitle('1. Personal & Contact Details'),
+            _sectionTitle('personal_details_sec'.tr),
             TextField(
               controller: _regNameCtrl,
               enabled: _regStep == 0,
@@ -758,7 +805,7 @@ class _AuthScreenState extends State<AuthScreen>
                 if (_regNameError != null) setState(() => _regNameError = null);
               },
               decoration: InputDecoration(
-                labelText: 'Full Name *',
+                labelText: 'full_name'.tr,
                 prefixIcon: const Icon(Icons.person_outline),
                 errorText: _regNameError,
               ),
@@ -773,17 +820,22 @@ class _AuthScreenState extends State<AuthScreen>
               ],
               enabled: _regStep == 0,
               onChanged: (_) {
-                if (_regMobileError != null) setState(() => _regMobileError = null);
+                if (_regMobileError != null || _isDuplicateMobileError) {
+                  setState(() {
+                    _regMobileError = null;
+                    _isDuplicateMobileError = false;
+                  });
+                }
               },
               decoration: InputDecoration(
-                labelText: 'Mobile Number (WhatsApp) *',
-                hintText: '10-digit mobile number',
+                labelText: 'mobile_whatsapp'.tr,
+                hintText: 'mobile_hint'.tr,
                 prefixText: '+91 ',
                 prefixIcon: const Icon(Icons.phone_outlined),
                 errorText: _regMobileError,
               ),
             ),
-            if (_regMobileError != null && _regMobileError!.contains('already registered')) ...[
+            if (_isDuplicateMobileError) ...[
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
@@ -792,8 +844,8 @@ class _AuthScreenState extends State<AuthScreen>
                     foregroundColor: kGreen,
                   ),
                   icon: const Icon(Icons.login, size: 14),
-                  label: const Text('Already registered? Switch to Login ➔',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  label: Text('already_registered_switch'.tr,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   onPressed: () {
                     _loginMobileCtrl.text = _regMobileCtrl.text.trim();
                     _tabController.animateTo(0);
@@ -810,7 +862,7 @@ class _AuthScreenState extends State<AuthScreen>
                 if (_regPassError != null) setState(() => _regPassError = null);
               },
               decoration: InputDecoration(
-                labelText: 'Password *',
+                labelText: 'password'.tr,
                 prefixIcon: const Icon(Icons.lock_outline),
                 errorText: _regPassError,
                 suffixIcon: IconButton(
@@ -821,7 +873,7 @@ class _AuthScreenState extends State<AuthScreen>
             ),
             const SizedBox(height: 16),
 
-            _sectionTitle('2. Delivery Address & GPS'),
+            _sectionTitle('delivery_address_sec'.tr),
             TextField(
               controller: _regAddressCtrl,
               enabled: _regStep == 0,
@@ -829,7 +881,7 @@ class _AuthScreenState extends State<AuthScreen>
                 if (_regAddressError != null) setState(() => _regAddressError = null);
               },
               decoration: InputDecoration(
-                labelText: 'House / Flat Address *',
+                labelText: 'house_flat_address'.tr,
                 prefixIcon: const Icon(Icons.home_outlined),
                 errorText: _regAddressError,
               ),
@@ -837,14 +889,14 @@ class _AuthScreenState extends State<AuthScreen>
             const SizedBox(height: 8),
             Row(children: [
               Expanded(child: TextField(controller: _regAreaCtrl, enabled: _regStep == 0,
-                  decoration: const InputDecoration(labelText: 'Area'))),
+                  decoration: InputDecoration(labelText: 'area'.tr))),
               const SizedBox(width: 8),
               Expanded(child: TextField(controller: _regCityCtrl, enabled: _regStep == 0,
-                  decoration: const InputDecoration(labelText: 'City'))),
+                  decoration: InputDecoration(labelText: 'city'.tr))),
             ]),
             const SizedBox(height: 8),
             TextField(controller: _regPincodeCtrl, keyboardType: TextInputType.number, enabled: _regStep == 0,
-                decoration: const InputDecoration(labelText: 'Pincode', prefixIcon: Icon(Icons.pin_drop_outlined))),
+                decoration: InputDecoration(labelText: 'pincode'.tr, prefixIcon: const Icon(Icons.pin_drop_outlined))),
             const SizedBox(height: 8),
             const SizedBox(height: 10),
             // Map Location Picker & GPS Selection (Replaces raw Latitude & Longitude)
@@ -873,14 +925,14 @@ class _AuthScreenState extends State<AuthScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Pinpoint Delivery Location on Map',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            Text(
+                              'pinpoint_map_title'.tr,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                             ),
                             Text(
                               _latCtrl.text.isNotEmpty && _lngCtrl.text.isNotEmpty
-                                  ? 'Selected Area: ${_regAreaCtrl.text.isNotEmpty ? _regAreaCtrl.text : 'Pin Placed'}'
-                                  : 'Tap to pick & confirm your delivery location on the map',
+                                  ? '${'selected_location'.tr}: ${_regAreaCtrl.text.isNotEmpty ? _regAreaCtrl.text : 'auth_pin_placed'.tr}'
+                                  : 'pinpoint_map_desc'.tr,
                               style: const TextStyle(fontSize: 11, color: Colors.grey),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -897,9 +949,9 @@ class _AuthScreenState extends State<AuthScreen>
                         flex: 3,
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.pin_drop, size: 16),
-                          label: const Text(
-                            'Pick / Modify on Map 🗺️',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          label: Text(
+                            'pick_on_map'.tr,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kGreen,
@@ -915,9 +967,9 @@ class _AuthScreenState extends State<AuthScreen>
                         flex: 2,
                         child: OutlinedButton.icon(
                           icon: const Icon(Icons.my_location, size: 15),
-                          label: const Text(
-                            'My GPS 📍',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          label: Text(
+                            'auth_gps_btn'.tr,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: kGreen,
@@ -939,7 +991,7 @@ class _AuthScreenState extends State<AuthScreen>
               icon: _sendingOtp
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.send_to_mobile, size: 18),
-              label: Text(_sendingOtp ? 'Sending OTP...' : 'Send OTP via WhatsApp 📲',
+              label: Text(_sendingOtp ? 'please_wait'.tr : 'send_whatsapp_otp'.tr,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               onPressed: _sendingOtp ? null : _sendRegisterOtp,
             ),
@@ -956,16 +1008,16 @@ class _AuthScreenState extends State<AuthScreen>
               child: Column(children: [
                 const Icon(Icons.mark_chat_unread_outlined, color: Colors.white, size: 36),
                 const SizedBox(height: 8),
-                const Text('OTP Sent via WhatsApp!', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('auth_otp_sent_wa_title'.tr, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 4),
-                Text('Check WhatsApp for +91 ${_regMobileCtrl.text.trim()}',
+                Text(tr('auth_check_wa_for', {'mobile': _regMobileCtrl.text.trim()}),
                     style: const TextStyle(color: Colors.white70, fontSize: 12), textAlign: TextAlign.center),
               ]),
             ),
             const SizedBox(height: 20),
 
-            const Text('Enter 6-digit OTP', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            const Text('Enter the OTP received on your WhatsApp number', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text('enter_otp'.tr, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text('auth_enter_otp_wa_desc'.tr, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
 
             TextField(
@@ -988,16 +1040,16 @@ class _AuthScreenState extends State<AuthScreen>
               icon: _loading
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.verified_user_outlined, size: 18),
-              label: Text(_loading ? 'Verifying & Registering...' : 'Verify OTP & Create Account',
+              label: Text(_loading ? 'please_wait'.tr : 'verify_and_create'.tr,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               onPressed: _loading ? null : _verifyOtp,
             ),
             const SizedBox(height: 12),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Text("Didn't receive? ", style: TextStyle(color: Colors.grey, fontSize: 13)),
+              Text('auth_didnt_receive'.tr, style: const TextStyle(color: Colors.grey, fontSize: 13)),
               TextButton.icon(
                 icon: const Icon(Icons.refresh, size: 14, color: kGreen),
-                label: const Text('Resend OTP', style: TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
+                label: Text('resend_otp'.tr, style: const TextStyle(color: kGreen, fontSize: 13, fontWeight: FontWeight.w600)),
                 onPressed: _sendingOtp ? null : () {
                   setState(() => _regStep = 0);
                   _sendRegisterOtp();
@@ -1006,8 +1058,11 @@ class _AuthScreenState extends State<AuthScreen>
             ]),
             const SizedBox(height: 8),
             TextButton(
-              onPressed: () => setState(() { _regStep = 0; _generatedOtp = null; }),
-              child: const Text('← Edit Details', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              onPressed: () {
+                SecurityService.otpManager.clear();
+                setState(() => _regStep = 0);
+              },
+              child: Text('auth_edit_details'.tr, style: const TextStyle(color: Colors.grey, fontSize: 13)),
             ),
           ],
 
@@ -1016,9 +1071,9 @@ class _AuthScreenState extends State<AuthScreen>
             const SizedBox(height: 40),
             const Center(child: CircularProgressIndicator(color: kGreen, strokeWidth: 3)),
             const SizedBox(height: 20),
-            const Center(child: Text('✅ OTP Verified!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kGreen))),
+            Center(child: Text('auth_otp_verified_title'.tr, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kGreen))),
             const SizedBox(height: 8),
-            const Center(child: Text('Creating your account...', style: TextStyle(color: Colors.grey, fontSize: 13))),
+            Center(child: Text('auth_creating_account'.tr, style: const TextStyle(color: Colors.grey, fontSize: 13))),
           ],
         ]),
       ),

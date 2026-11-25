@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
+import '../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -44,22 +45,22 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     final confirmPass = _confirmPassCtrl.text.trim();
 
     if (currentPass.isEmpty) {
-      _showSnack('Please enter your current password');
+      _showSnack('cp_enter_current_err'.tr);
       return;
     }
 
     if (newPass.length < 6) {
-      _showSnack('New password must be at least 6 characters long');
+      _showSnack('cp_new_min_err'.tr);
       return;
     }
 
     if (newPass == currentPass) {
-      _showSnack('New password cannot be the same as your current password');
+      _showSnack('cp_same_err'.tr);
       return;
     }
 
     if (newPass != confirmPass) {
-      _showSnack('New passwords do not match');
+      _showSnack('cp_mismatch_err'.tr);
       return;
     }
 
@@ -70,7 +71,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       // 1. Verify Current Password against Supabase server
       final isValid = await SupabaseAPI.verifyCurrentPassword(custId, currentPass);
       if (!isValid) {
-        _showSnack('Current password is incorrect. Please try again.');
+        _showSnack('cp_wrong_current_err'.tr);
         setState(() => _submitting = false);
         return;
       }
@@ -79,10 +80,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       await SupabaseAPI.updatePassword(custId, newPass);
 
       if (!mounted) return;
-      _showSnack('🔐 Password updated successfully!', isError: false);
+      _showSnack('password_changed_success'.tr, isError: false);
       Navigator.pop(context);
     } catch (e) {
-      _showSnack('Error updating password: ${e.toString().replaceAll('Exception: ', '')}');
+      _showSnack(tr('cp_error_msg', {'err': e.toString().replaceAll('Exception: ', '')}));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -92,8 +93,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Change Password',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: Text('change_password_btn'.tr,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -110,27 +111,27 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFA7F3D0)),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    CircleAvatar(
+                    const CircleAvatar(
                       radius: 22,
                       backgroundColor: _green,
                       child: Icon(Icons.shield_outlined, color: Colors.white),
                     ),
-                    SizedBox(width: 14),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Secure Password Update',
-                              style: TextStyle(
+                          Text('cp_header_title'.tr,
+                              style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
                                   color: Color(0xFF065F46))),
-                          SizedBox(height: 2),
+                          const SizedBox(height: 2),
                           Text(
-                              'Verify your current password to set a new password for your account.',
-                              style: TextStyle(
+                              'cp_header_desc'.tr,
+                              style: const TextStyle(
                                   fontSize: 12, color: Color(0xFF047857))),
                         ],
                       ),
@@ -147,8 +148,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       // 1. Current Password
-                      const Text('1. Enter Current Password',
-                          style: TextStyle(
+                      Text('cp_step1_title'.tr,
+                          style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF334155))),
@@ -157,8 +158,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         controller: _currentPassCtrl,
                         obscureText: _obscureCurrent,
                         decoration: InputDecoration(
-                          labelText: 'Current Password *',
-                          hintText: 'Enter your existing password',
+                          labelText: 'current_password_label'.tr,
+                          hintText: 'cp_step1_hint'.tr,
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             icon: Icon(_obscureCurrent
@@ -175,8 +176,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       const SizedBox(height: 16),
 
                       // 2. New Password
-                      const Text('2. Set New Password',
-                          style: TextStyle(
+                      Text('cp_step2_title'.tr,
+                          style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF334155))),
@@ -185,8 +186,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         controller: _newPassCtrl,
                         obscureText: _obscureNew,
                         decoration: InputDecoration(
-                          labelText: 'New Password *',
-                          hintText: 'Minimum 6 characters',
+                          labelText: 'new_password_label'.tr,
+                          hintText: 'cp_step2_hint'.tr,
                           prefixIcon: const Icon(Icons.key_outlined),
                           suffixIcon: IconButton(
                             icon: Icon(_obscureNew
@@ -205,8 +206,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         controller: _confirmPassCtrl,
                         obscureText: _obscureConfirm,
                         decoration: InputDecoration(
-                          labelText: 'Confirm New Password *',
-                          hintText: 'Re-enter new password',
+                          labelText: 'confirm_password_label'.tr,
+                          hintText: 'cp_confirm_hint'.tr,
                           prefixIcon: const Icon(Icons.key_outlined),
                           suffixIcon: IconButton(
                             icon: Icon(_obscureConfirm
@@ -237,8 +238,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                             : const Icon(Icons.lock_reset),
                         label: Text(
                           _submitting
-                              ? 'Verifying & Saving...'
-                              : 'Update Password',
+                              ? 'please_wait'.tr
+                              : 'update_password_btn'.tr,
                           style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold),
                         ),

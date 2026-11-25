@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/api.dart';
 import '../services/session_service.dart';
+import '../services/language_service.dart';
+import '../widgets/app_logo.dart';
 import 'home_screen.dart';
 
 const kGreen = Color(0xFF059669);
@@ -159,17 +161,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _startUPIPaymentFlow(int totalDeposit) {
     if (_isCustomDeliveryDays && _effectiveDeliveryDays.isEmpty) {
-      _snack('Please select or specify your custom delivery days');
+      _snack('onb_custom_days_required'.tr);
       return;
     }
 
     if (_isCustomQuantity && (double.tryParse(_customQuantityController.text.trim()) ?? 0) <= 0) {
-      _snack('Please enter a valid custom quantity in liters');
+      _snack('onb_valid_qty_err'.tr);
       return;
     }
 
     if (_totalBottleCount < 2) {
-      _snack('Please select at least 2 bottles in total (1.0L or 0.5L) for daily delivery rotation');
+      _snack('onb_min_bottles_daily_err'.tr);
       return;
     }
 
@@ -178,7 +180,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _doCompleteOnboarding() async {
     if (_totalBottleCount < 2) {
-      _snack('Please select at least 2 bottles in total for daily rotation');
+      _snack('onb_min_bottles_err'.tr);
       return;
     }
 
@@ -216,7 +218,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await UserSession.saveSession(updatedCustomer);
       if (!mounted) return;
 
-      _snack('🎉 Payment Successful! Welcome to Amutham Raw Milk.', error: false);
+      _snack('onb_welcome_success'.tr, error: false);
 
       // Navigate directly to Dashboard
       Navigator.pushReplacement(
@@ -231,8 +233,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _showUPIPaymentBottomSheet(int totalDeposit) {
-    final upiId = (_enterprise?['upi_id'] ?? 'amudhamdairy@upi').toString().trim();
-    final compName = (_enterprise?['upi_payee_name'] ?? _enterprise?['company_name'] ?? 'Amudham Milk Enterprises').toString().trim();
+    final upiId = (_enterprise?['upi_id'] ?? 'sriaashikaa@upi').toString().trim();
+    final compName = (_enterprise?['upi_payee_name'] ?? _enterprise?['company_name'] ?? 'Sri Aashikaa Milk').toString().trim();
     final upiUrl = 'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(compName)}&am=$totalDeposit&cu=INR&tn=SecurityDeposit';
     final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${Uri.encodeComponent(upiUrl)}';
 
@@ -276,17 +278,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Column(
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('UPI Security Deposit Payment',
-                                style: TextStyle(
+                            Text('onb_upi_title'.tr,
+                                style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.black87)),
-                            SizedBox(height: 2),
-                            Text('Official Server UPI Payment Gateway',
-                                style: TextStyle(
+                            const SizedBox(height: 2),
+                            Text('onb_upi_subtitle'.tr,
+                                style: const TextStyle(
                                     fontSize: 11, color: Colors.grey)),
                           ],
                         ),
@@ -312,8 +314,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Total Security Deposit:',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              Text('onb_total_deposit_colon'.tr,
+                                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
                               const SizedBox(height: 2),
                               Text('₹$totalDeposit',
                                   style: const TextStyle(
@@ -328,13 +330,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               color: kGreen.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(20),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.shield_outlined, size: 14, color: kGreen),
-                                SizedBox(width: 4),
-                                Text('100% Refundable',
-                                    style: TextStyle(
+                                const Icon(Icons.shield_outlined, size: 14, color: kGreen),
+                                const SizedBox(width: 4),
+                                Text('onb_refundable_100'.tr,
+                                    style: const TextStyle(
                                         color: kGreen,
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold)),
@@ -372,7 +374,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 2),
-                                Text('UPI ID: $upiId',
+                                Text(tr('onb_upi_id_val', {'upi': upiId}),
                                     style: const TextStyle(
                                         fontSize: 12,
                                         color: Colors.black87,
@@ -382,7 +384,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                           OutlinedButton.icon(
                             icon: const Icon(Icons.copy, size: 14),
-                            label: const Text('Copy', style: TextStyle(fontSize: 11)),
+                            label: Text('onb_copy_btn'.tr, style: const TextStyle(fontSize: 11)),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: kGreen,
                               side: const BorderSide(color: kGreen),
@@ -391,9 +393,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             ),
                             onPressed: () {
                               Clipboard.setData(ClipboardData(text: upiId));
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                content: Text('UPI ID copied to clipboard!'),
-                                duration: Duration(seconds: 2),
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text('onb_upi_copied'.tr),
+                                duration: const Duration(seconds: 2),
                                 behavior: SnackBarBehavior.floating,
                               ));
                             },
@@ -458,8 +460,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          const Text('Scan using GPay, PhonePe, Paytm, or any UPI App',
-                              style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text('onb_scan_upi_hint'.tr,
+                              style: const TextStyle(fontSize: 11, color: Colors.grey)),
                         ],
                       ),
                     ),
@@ -468,8 +470,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Launch UPI App Intent Button
                     OutlinedButton.icon(
                       icon: const Icon(Icons.open_in_new, size: 18),
-                      label: const Text('Open in UPI App (GPay / PhonePe / Paytm)',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      label: Text('onb_open_upi_btn'.tr,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: kGreen,
                         side: const BorderSide(color: kGreen),
@@ -477,17 +479,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () async {
+                        final uri = Uri.parse(upiUrl);
+                        bool launched = false;
                         try {
-                          final uri = Uri.parse(upiUrl);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          } else {
-                            Clipboard.setData(ClipboardData(text: upiId));
-                            _snack('Please open your UPI app and pay to: $upiId', error: false);
-                          }
-                        } catch (_) {
+                          launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        } catch (_) {}
+                        if (!launched) {
+                          try {
+                            launched = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+                          } catch (_) {}
+                        }
+                        if (!launched) {
                           Clipboard.setData(ClipboardData(text: upiId));
-                          _snack('Please open your UPI app and pay to: $upiId', error: false);
+                          _snack(tr('onb_upi_not_responded', {'upi': upiId}), error: false);
                         }
                       },
                     ),
@@ -513,8 +517,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               width: 20,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
-                          : const Text('I Have Paid • Go to Dashboard ➔',
-                              style: TextStyle(
+                          : Text('onb_paid_go_dashboard'.tr,
+                              style: const TextStyle(
                                   fontSize: 14, fontWeight: FontWeight.bold)),
                     ),
                   ],
@@ -529,12 +533,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final name = widget.customer['name'] ?? 'Valued Customer';
+    final name = widget.customer['name'] ?? 'valued_customer'.tr;
 
-    return Scaffold(
+    return ValueListenableBuilder<String>(
+      valueListenable: LanguageService.languageNotifier,
+      builder: (context, _, _) => Scaffold(
       appBar: AppBar(
-        title: const Text('Subscription Onboarding',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        title: Text('setup_subscription'.tr,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -571,19 +577,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Welcome, $name 👋',
+                        Text(tr('onb_welcome_user', {'name': '$name'}),
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold)),
                         const SizedBox(height: 2),
-                        const Text(
-                          'Configure your daily milk quantity, timing & deposit below:',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                        Text(
+                          'onb_configure_subtitle'.tr,
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  const AppLogo(size: 44, compact: true),
                 ]),
               ),
               const SizedBox(height: 20),
@@ -595,7 +603,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       // ── 1. DAILY MILK NEED ──────────────────────────────────
-                      _sectionTitle('1. Daily Milk Need'),
+                      _sectionTitle('onb_sec_1_milk'.tr),
                       Container(
                         padding: const EdgeInsets.all(12),
                         margin: const EdgeInsets.only(bottom: 12),
@@ -621,7 +629,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    '$_milkProductDesc • ₹${_ratePerLiter.toInt()}/Liter',
+                                    '$_milkProductDesc • ${tr('onb_rate_per_liter', {'rate': '${_ratePerLiter.toInt()}'})}',
                                     style: const TextStyle(
                                         fontSize: 11,
                                         color: kGreen,
@@ -633,8 +641,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ],
                         ),
                       ),
-                      const Text('Daily Quantity (Liters):',
-                          style: TextStyle(
+                      Text('onb_daily_qty_colon'.tr,
+                          style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: Colors.grey)),
@@ -662,7 +670,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 ),
                               )),
                           ChoiceChip(
-                            label: const Text('Custom L'),
+                            label: Text('onb_custom_l'.tr),
                             selected: _isCustomQuantity,
                             onSelected: (_) {
                               setState(() {
@@ -683,10 +691,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         TextFormField(
                           controller: _customQuantityController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          decoration: const InputDecoration(
-                            labelText: 'Custom Quantity (Liters) *',
-                            hintText: 'e.g. 2.5 or 4.0',
-                            prefixIcon: Icon(IconData(0xe39d, fontFamily: 'MaterialIcons')), // local_drink
+                          decoration: InputDecoration(
+                            labelText: 'onb_custom_qty_label'.tr,
+                            hintText: 'onb_custom_qty_hint'.tr,
+                            prefixIcon: const Icon(IconData(0xe39d, fontFamily: 'MaterialIcons')), // local_drink
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
@@ -694,16 +702,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       const SizedBox(height: 16),
 
                       // ── 2. TIMING & SCHEDULE ─────────────────────────────────
-                      _sectionTitle('2. Delivery Timing & Days'),
+                      _sectionTitle('onb_sec_2_timing'.tr),
                       DropdownButtonFormField<String>(
                         initialValue: _selectedTimeSlot,
-                        decoration: const InputDecoration(
-                            labelText: 'Delivery Slot *',
-                            prefixIcon: Icon(Icons.access_time)),
+                        decoration: InputDecoration(
+                            labelText: 'onb_delivery_slot_req'.tr,
+                            prefixIcon: const Icon(Icons.access_time)),
                         items: _timeSlotOptions
                             .map((t) => DropdownMenuItem(
                                   value: t,
-                                  child: Text(t,
+                                  child: Text(LanguageService.slotLabel(t),
                                       style: const TextStyle(fontSize: 13)),
                                 ))
                             .toList(),
@@ -712,13 +720,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         initialValue: _selectedDeliveryDays,
-                        decoration: const InputDecoration(
-                            labelText: 'Delivery Schedule *',
-                            prefixIcon: Icon(Icons.calendar_month_outlined)),
+                        decoration: InputDecoration(
+                            labelText: 'onb_delivery_schedule_req'.tr,
+                            prefixIcon: const Icon(Icons.calendar_month_outlined)),
                         items: _deliveryDayOptions
                             .map((d) => DropdownMenuItem(
                                   value: d,
-                                  child: Text(d,
+                                  child: Text(LanguageService.planLabel(d),
                                       style: const TextStyle(fontSize: 13)),
                                 ))
                             .toList(),
@@ -731,8 +739,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                       if (_isCustomDeliveryDays) ...[
                         const SizedBox(height: 12),
-                        const Text('Select Custom Delivery Days:',
-                            style: TextStyle(
+                        Text('onb_select_custom_days'.tr,
+                            style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.grey)),
@@ -743,7 +751,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           children: _weekDays.map((day) {
                             final isSelected = _selectedDaysSet.contains(day);
                             return FilterChip(
-                              label: Text(day),
+                              label: Text(LanguageService.dayShortLabel(day)),
                               selected: isSelected,
                               selectedColor: kGreen,
                               checkmarkColor: Colors.white,
@@ -769,10 +777,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         const SizedBox(height: 10),
                         TextFormField(
                           controller: _customDeliveryDaysController,
-                          decoration: const InputDecoration(
-                            labelText: 'Custom Days Selected / Schedule *',
-                            hintText: 'Select days above or type schedule (e.g. Every 2 Days)',
-                            prefixIcon: Icon(Icons.edit_calendar),
+                          decoration: InputDecoration(
+                            labelText: 'onb_custom_days_label'.tr,
+                            hintText: 'onb_custom_days_hint'.tr,
+                            prefixIcon: const Icon(Icons.edit_calendar),
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
@@ -783,19 +791,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       TextFormField(
                         controller: _customNotesController,
                         maxLines: 2,
-                        decoration: const InputDecoration(
-                          labelText: 'Custom Delivery Instructions (Optional)',
-                          hintText: 'e.g. Leave bottle in milk bag, ring bell twice...',
-                          prefixIcon: Icon(Icons.note_alt_outlined),
+                        decoration: InputDecoration(
+                          labelText: 'onb_custom_notes_label'.tr,
+                          hintText: 'onb_custom_notes_hint'.tr,
+                          prefixIcon: const Icon(Icons.note_alt_outlined),
                         ),
                       ),
                       const SizedBox(height: 16),
 
                       // ── 3. PAYMENT TIME PERIOD ──────────────────────────────
-                      _sectionTitle('3. Payment Time Period / Billing Schedule'),
-                      const Text(
-                        'Choose when you would like to settle your delivered milk bills:',
-                        style: TextStyle(
+                      _sectionTitle('onb_sec_3_payment'.tr),
+                      Text(
+                        'onb_choose_settle_bills'.tr,
+                        style: const TextStyle(
                             fontSize: 11,
                             color: Colors.grey,
                             fontWeight: FontWeight.w600),
@@ -804,41 +812,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
                       _paymentPeriodCard(
                         key: 'daily',
-                        title: 'Daily Post-Delivery',
-                        subtitle: 'Pay daily after each morning or evening delivery drop',
-                        tag: 'Pay Daily',
+                        title: 'onb_pay_daily_title'.tr,
+                        subtitle: 'onb_pay_daily_desc'.tr,
+                        tag: 'onb_pay_daily_tag'.tr,
                         icon: Icons.today_outlined,
                       ),
                       const SizedBox(height: 8),
 
                       _paymentPeriodCard(
                         key: 'weekly',
-                        title: 'Weekly (Every Saturday)',
-                        subtitle: 'Pay once a week every Saturday for the week\'s delivered milk',
-                        tag: 'Popular',
+                        title: 'onb_pay_weekly_title'.tr,
+                        subtitle: 'onb_pay_weekly_desc'.tr,
+                        tag: 'onb_pay_weekly_tag'.tr,
                         icon: Icons.view_week_outlined,
                       ),
                       const SizedBox(height: 8),
 
                       _paymentPeriodCard(
                         key: 'monthly',
-                        title: 'Monthly (1st of Month)',
-                        subtitle: 'Pay once a month on the 1st for the previous month\'s milk',
-                        tag: 'Monthly Bill',
+                        title: 'onb_pay_monthly_title'.tr,
+                        subtitle: 'onb_pay_monthly_desc'.tr,
+                        tag: 'onb_pay_monthly_tag'.tr,
                         icon: Icons.calendar_month_outlined,
                       ),
                       const SizedBox(height: 16),
 
                       // ── 4. ALTERNATE CONTACT & EMAIL ID ─────────────────────
-                      _sectionTitle('4. Alternate Contact & Email ID'),
+                      _sectionTitle('onb_sec_4_contact'.tr),
                       TextFormField(
                         controller: _alternateMobileController,
                         keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Alternate Mobile Number (Optional)',
-                          hintText: 'e.g. 9876543210 (10-digit number)',
-                          prefixIcon: Icon(Icons.phone_android_outlined),
-                          helperText: 'Secondary contact for delivery updates and displayed in Account Details',
+                        decoration: InputDecoration(
+                          labelText: 'onb_alt_mobile_opt'.tr,
+                          hintText: 'onb_alt_mobile_hint'.tr,
+                          prefixIcon: const Icon(Icons.phone_android_outlined),
+                          helperText: 'onb_alt_mobile_helper'.tr,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -846,17 +854,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'Email Address / ID (Optional)',
-                          hintText: 'e.g. customer@example.com',
-                          prefixIcon: Icon(Icons.email_outlined),
-                          helperText: 'For receiving delivery receipts, monthly invoices, and account notices',
+                        decoration: InputDecoration(
+                          labelText: 'onb_email_opt'.tr,
+                          hintText: 'onb_email_hint'.tr,
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          helperText: 'onb_email_helper'.tr,
                         ),
                       ),
                       const SizedBox(height: 16),
 
                       // ── 5. DEPOSITS & ASSETS ─────────────────────────────────
-                      _sectionTitle('5. Security Deposit & Assets'),
+                      _sectionTitle('onb_sec_5_deposit'.tr),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         margin: const EdgeInsets.only(bottom: 12),
@@ -871,7 +879,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Automated Bottle Allocation: Required bottles are automatically calculated based on your ${_effectiveQuantity}L daily milk plan (min 2 bottles for daily delivery rotation).',
+                                tr('onb_auto_alloc_banner', {'qty': '$_effectiveQuantity'}),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: Color(0xFF065F46),
@@ -913,7 +921,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                             color: Colors.black87),
                                       ),
                                       Text(
-                                        '₹${_bottle1LDeposit.toInt()} refundable deposit per bottle',
+                                        tr('onb_deposit_per_bottle', {'amt': '${_bottle1LDeposit.toInt()}'}),
                                         style: TextStyle(
                                             fontSize: 11,
                                             color: Colors.grey.shade600),
@@ -937,8 +945,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     const SizedBox(width: 6),
                                     Text(
                                       _count1L > 0
-                                          ? 'Automated Allocation:'
-                                          : 'Not needed for this quantity',
+                                          ? 'onb_auto_alloc_label'.tr
+                                          : 'onb_not_needed_qty'.tr,
                                       style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -961,7 +969,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     ),
                                   ),
                                   child: Text(
-                                    '$_count1L ${_count1L == 1 ? "Bottle" : "Bottles"} (₹${(_count1L * _bottle1LDeposit).toInt()})',
+                                    '$_count1L ${_count1L == 1 ? 'onb_bottle_singular'.tr : 'onb_bottle_plural'.tr} (₹${(_count1L * _bottle1LDeposit).toInt()})',
                                     style: TextStyle(
                                       color: _count1L > 0 ? kGreen : Colors.grey.shade600,
                                       fontWeight: FontWeight.bold,
@@ -1006,7 +1014,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                             color: Colors.black87),
                                       ),
                                       Text(
-                                        '₹${_bottle05LDeposit.toInt()} refundable deposit per bottle',
+                                        tr('onb_deposit_per_bottle', {'amt': '${_bottle05LDeposit.toInt()}'}),
                                         style: TextStyle(
                                             fontSize: 11,
                                             color: Colors.grey.shade600),
@@ -1030,8 +1038,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     const SizedBox(width: 6),
                                     Text(
                                       _count05L > 0
-                                          ? 'Automated Allocation:'
-                                          : 'Not needed for this quantity',
+                                          ? 'onb_auto_alloc_label'.tr
+                                          : 'onb_not_needed_qty'.tr,
                                       style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -1054,7 +1062,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     ),
                                   ),
                                   child: Text(
-                                    '$_count05L ${_count05L == 1 ? "Bottle" : "Bottles"} (₹${(_count05L * _bottle05LDeposit).toInt()})',
+                                    '$_count05L ${_count05L == 1 ? 'onb_bottle_singular'.tr : 'onb_bottle_plural'.tr} (₹${(_count05L * _bottle05LDeposit).toInt()})',
                                     style: TextStyle(
                                       color: _count05L > 0 ? kGreen : Colors.grey.shade600,
                                       fontWeight: FontWeight.bold,
@@ -1090,7 +1098,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Total Bottles: $_totalBottleCount bottles automatically calculated for ${_effectiveQuantity}L daily rotation (2-day cycle: 1 delivery set, 1 exchange set)',
+                                tr('onb_total_bottles_banner', {
+                                  'count': '$_totalBottleCount',
+                                  'qty': '$_effectiveQuantity',
+                                }),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -1109,11 +1120,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         onChanged: (v) => setState(() => _iceBoxNeeded = v),
                         activeThumbColor: kGreen,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Insulated Ice Box Required',
-                            style: TextStyle(
+                        title: Text('onb_ice_box_req'.tr,
+                            style: const TextStyle(
                                 fontSize: 13, fontWeight: FontWeight.bold)),
                         subtitle: Text(
-                            'Refundable deposit of ₹${_iceBoxDepositAmount.toInt()}',
+                            tr('onb_ice_box_deposit', {'amt': '${_iceBoxDepositAmount.toInt()}'}),
                             style: const TextStyle(
                                 fontSize: 11, color: Colors.grey)),
                       ),
@@ -1131,39 +1142,51 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Security Deposit & Plan Summary',
-                                style: TextStyle(
+                            Text('onb_summary_title'.tr,
+                                style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: kGreen,
                                     fontSize: 13)),
                             const SizedBox(height: 8),
                             _summaryRow(
-                                'Billing Frequency',
+                                'onb_billing_freq'.tr,
                                 _selectedPaymentPeriod == 'daily'
-                                    ? 'Daily (Post-Delivery)'
+                                    ? 'onb_pay_daily_title'.tr
                                     : _selectedPaymentPeriod == 'weekly'
-                                        ? 'Weekly (Every Saturday)'
-                                        : 'Monthly (1st of Month)'),
+                                        ? 'onb_pay_weekly_title'.tr
+                                        : 'onb_pay_monthly_title'.tr),
                             if (_count1L > 0)
                               _summaryRow(
-                                  '1.0L Bottles ($_count1L × ₹${_bottle1LDeposit.toInt()})',
+                                  tr('onb_bottles_1l_row', {
+                                    'count': '$_count1L',
+                                    'rate': '${_bottle1LDeposit.toInt()}',
+                                  }),
                                   '₹${(_count1L * _bottle1LDeposit).toInt()}'),
                             if (_count05L > 0)
                               _summaryRow(
-                                  '0.5L Bottles ($_count05L × ₹${_bottle05LDeposit.toInt()})',
+                                  tr('onb_bottles_05l_row', {
+                                    'count': '$_count05L',
+                                    'rate': '${_bottle05LDeposit.toInt()}',
+                                  }),
                                   '₹${(_count05L * _bottle05LDeposit).toInt()}'),
                             if (_count1L == 0 && _count05L == 0)
-                              _summaryRow('Bottle Deposit', '₹0'),
+                              _summaryRow('onb_bottle_deposit_row'.tr, '₹0'),
                             if (_iceBoxNeeded)
                               _summaryRow(
-                                  'Ice Box Deposit', '₹${_iceBoxDepositAmount.toInt()}'),
+                                  'onb_ice_box_deposit_row'.tr, '₹${_iceBoxDepositAmount.toInt()}'),
                             const Divider(),
                             _summaryRow(
-                                'Total Security Deposit', '₹$_totalDepositCalculated',
+                                'onb_total_deposit_row'.tr, '₹$_totalDepositCalculated',
                                 isBold: true),
                             const SizedBox(height: 6),
                             Text(
-                              '• 100% refundable security deposit for reusable delivery assets.\n• Milk bills will be settled ${_selectedPaymentPeriod == 'daily' ? 'daily after each delivery drop' : _selectedPaymentPeriod == 'weekly' ? 'weekly on Saturdays' : 'monthly on the 1st of each month'}.',
+                              tr('onb_summary_bullets', {
+                                'freq': _selectedPaymentPeriod == 'daily'
+                                    ? 'onb_freq_daily_inline'.tr
+                                    : _selectedPaymentPeriod == 'weekly'
+                                        ? 'onb_freq_weekly_inline'.tr
+                                        : 'onb_freq_monthly_inline'.tr,
+                              }),
                               style: TextStyle(
                                   fontSize: 10,
                                   color: Colors.grey.shade600,
@@ -1185,7 +1208,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2))
                             : Text(
-                                'Pay Security Deposit (₹$_totalDepositCalculated) via UPI ➔',
+                                tr('onb_pay_upi_btn', {'amt': '$_totalDepositCalculated'}),
                                 style: const TextStyle(
                                     fontWeight: FontWeight.bold, fontSize: 14)),
                       ),
@@ -1197,6 +1220,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 

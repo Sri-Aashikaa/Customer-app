@@ -1,12 +1,24 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-/// WhatsApp Cloud API Config provided by USER
+/// WhatsApp Cloud API Config
+/// Credentials are read securely from compile-time environment variables
+/// (--dart-define=WHATSAPP_ACCESS_TOKEN=... --dart-define=WHATSAPP_PHONE_NUMBER_ID=...)
+/// to prevent leaking secrets in source code and reverse-engineered client binaries.
 class WhatsAppConfig {
-  static const String phoneNumberId = '1090065870862766';
-  static const String accessToken =
-      'EAAU9xREEx7EBSFa5JjIT4sTIvp2hJksuKvVGVU0fnQjKSQ9sWlGFcvdSbBFUS4ZAV1NwZCeI8IPHmk84N5oyQoRAXAxBPXZBBZB8qPivvpYR523VME4ZCOXaIZAXy3KzuWwL4LbSAqW2lCZBipeZCCJkwQFytsI4kdZA7IHMS8iqnIIK0jMtedxZBdLuZC6E63ZAYhyhKAZDZD';
+  static const String phoneNumberId = String.fromEnvironment(
+    'WHATSAPP_PHONE_NUMBER_ID',
+    defaultValue: '1090065870862766',
+  );
+  static const String accessToken = String.fromEnvironment(
+    'WHATSAPP_ACCESS_TOKEN',
+    defaultValue: '',
+  );
   static const String templateName = 'amudham_authendication';
+
+  static bool get isConfigured =>
+      phoneNumberId.isNotEmpty && accessToken.isNotEmpty;
 }
 
 class WhatsAppService {
@@ -17,6 +29,16 @@ class WhatsAppService {
     String cleanMobile = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanMobile.length == 10) {
       cleanMobile = '91$cleanMobile'; // Add India country code if 10 digits
+    } else if (cleanMobile.length < 10) {
+      return false;
+    }
+
+    if (!WhatsAppConfig.isConfigured) {
+      if (kDebugMode) {
+        debugPrint(
+            'WhatsAppService: WhatsApp Cloud API token not set. Configure WHATSAPP_ACCESS_TOKEN via --dart-define.');
+      }
+      return false;
     }
 
     final url = Uri.parse(
@@ -56,7 +78,7 @@ class WhatsAppService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode(payload),
-      );
+      ).timeout(const Duration(seconds: 12));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -87,11 +109,14 @@ class WhatsAppService {
             'Content-Type': 'application/json',
           },
           body: jsonEncode(fallbackPayload),
-        );
+        ).timeout(const Duration(seconds: 12));
 
         return fbResponse.statusCode == 200 || fbResponse.statusCode == 201;
       }
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('WhatsAppService error: $e');
+      }
       return false;
     }
   }

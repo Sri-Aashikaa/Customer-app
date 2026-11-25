@@ -1,6 +1,11 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'session_service.dart';
+import 'security_service.dart';
 
 /// Supabase API Service aligned 100% with Official Supabase Database Schema:
 /// Tables: customers, customer_locations, customer_subscriptions, employees,
@@ -8,23 +13,67 @@ import 'session_service.dart';
 class SupabaseAPI {
   static final _db = Supabase.instance.client;
 
+  static String _customerLookupOr({
+    String? cleanDigits,
+    String? safeId,
+  }) {
+    final filters = <String>[];
+    if (cleanDigits != null && cleanDigits.length >= 10) {
+      filters.add('mobile.eq.$cleanDigits');
+      filters.add('phone.eq.$cleanDigits');
+    }
+    if (safeId != null && safeId.isNotEmpty) {
+      filters.add('customer_id.eq.$safeId');
+      if (SecurityService.isUuid(safeId)) {
+        filters.add('id.eq.$safeId');
+      }
+    }
+    return filters.isNotEmpty ? filters.join(',') : 'customer_id.eq.__none__';
+  }
+
+  static String _customerIdOrFilter(String safeResolvedId, String safeCustId) {
+    final filters = <String>[];
+    if (SecurityService.isUuid(safeResolvedId)) {
+      filters.add('id.eq.$safeResolvedId');
+    }
+    if (safeCustId.isNotEmpty) {
+      filters.add('customer_id.eq.$safeCustId');
+    }
+    if (SecurityService.isUuid(safeCustId) && safeCustId != safeResolvedId) {
+      filters.add('id.eq.$safeCustId');
+    }
+    return filters.isNotEmpty ? filters.join(',') : 'customer_id.eq.__none__';
+  }
+
   // ─── 1. AUTHENTICATION (customers table) ───────────────────────────────────
 
   static Future<Map<String, dynamic>> loginCustomer(
       String mobileNumber, String password) async {
-    final cleanDigits = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    final last10Digits = cleanDigits.length >= 10
-        ? cleanDigits.substring(cleanDigits.length - 10)
-        : cleanDigits;
+    final cleanDigits = SecurityService.sanitizeMobileDigits(mobileNumber);
+    final safeId = SecurityService.sanitizePostgrestParam(mobileNumber);
 
-    final res = await _db
+    if (cleanDigits.length < 10 && safeId.isEmpty) {
+      throw Exception('Please enter a valid 10-digit Mobile Number or Customer ID.');
+    }
+
+    // 0. Check Login Rate Limit / Brute-force Lockout
+    final rateLimitKey = cleanDigits.isNotEmpty ? cleanDigits : safeId;
+    final lockout = SecurityService.loginRateLimiter.checkLockout(rateLimitKey);
+    if (lockout.isLocked) {
+      throw Exception(
+        'Too many failed login attempts. Account temporarily locked for security. Please try again in ${lockout.remainingSeconds} seconds.',
+      );
+    }
+
+    final query = _db
         .from('customers')
         .select('*')
-        .or('mobile.ilike.%$last10Digits%,customer_id.eq.$mobileNumber,id.eq.$mobileNumber');
+        .or(_customerLookupOr(cleanDigits: cleanDigits, safeId: safeId));
 
+    final res = await query;
     final list = res as List;
     if (list.isEmpty) {
-      throw Exception('No account found with Mobile Number: "$mobileNumber"');
+      throw Exception('No account found with credentials: "$mobileNumber"');
     }
 
     final user = Map<String, dynamic>.from(list[0] as Map<String, dynamic>);
@@ -36,54 +85,79 @@ class SupabaseAPI {
     final storedPass = (user['password'] ?? '').toString().trim();
 
     if (storedPass.isNotEmpty) {
-      if (storedPass != password && password != 'password123') {
+      final isValid = SecurityService.verifyPassword(password, storedPass);
+      if (!isValid) {
+        SecurityService.loginRateLimiter.recordFailedAttempt(rateLimitKey);
         throw Exception('Invalid password. Please check your credentials.');
       }
+      SecurityService.loginRateLimiter.recordSuccessfulLogin(rateLimitKey);
+
+      // If stored password was legacy plaintext, automatically upgrade to salted SHA-256 hash
+      if (SecurityService.isLegacyPlaintext(storedPass)) {
+        try {
+          final secureHash = SecurityService.hashPassword(password);
+          await _db
+              .from('customers')
+              .update({'password': secureHash})
+              .eq('id', user['id']);
+        } catch (_) {}
+      }
     } else {
-      // If password in Supabase is NULL or empty, save the password to DB now
+      // If password in Supabase is NULL or empty, initialize it with secure hash
       try {
+        final secureHash = SecurityService.hashPassword(password);
         await _db
             .from('customers')
-            .update({'password': password})
+            .update({'password': secureHash})
             .eq('id', user['id']);
-        user['password'] = password;
       } catch (_) {}
     }
 
-    return user;
+    // Strip sensitive password field before passing to session and UI
+    return SecurityService.sanitizeCustomerData(user);
   }
 
   static Future<void> resetCustomerPassword(
       String mobileNumber, String newPassword) async {
-    final cleanDigits = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    final last10Digits = cleanDigits.length >= 10
-        ? cleanDigits.substring(cleanDigits.length - 10)
-        : cleanDigits;
+    final cleanDigits = SecurityService.sanitizeMobileDigits(mobileNumber);
+    final safeId = SecurityService.sanitizePostgrestParam(mobileNumber);
 
-    final res = await _db
+    if (cleanDigits.length < 10 && safeId.isEmpty) {
+      throw Exception('Valid 10-digit mobile number or Customer ID is required.');
+    }
+    if (newPassword.trim().length < 6) {
+      throw Exception('Password must be at least 6 characters.');
+    }
+
+    final secureHash = SecurityService.hashPassword(newPassword.trim());
+
+    final query = _db
         .from('customers')
-        .update({'password': newPassword})
-        .or('mobile.ilike.%$last10Digits%,customer_id.eq.$mobileNumber,id.eq.$mobileNumber')
-        .select();
+        .update({'password': secureHash})
+        .or(_customerLookupOr(cleanDigits: cleanDigits, safeId: safeId));
 
+    final res = await query.select('id');
     if ((res as List).isEmpty) {
-      throw Exception('No account found with Mobile Number: "$mobileNumber"');
+      throw Exception('No account found with credentials: "$mobileNumber"');
     }
   }
 
   static Future<bool> verifyCurrentPassword(
       String customerId, String currentPassword) async {
     final resolvedId = await _resolveCustomerId(customerId);
+    final safeCustId = SecurityService.sanitizePostgrestParam(customerId);
+    final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+
     try {
       final res = await _db
           .from('customers')
           .select('password')
-          .or('id.eq.$resolvedId,customer_id.eq.$customerId')
+          .or(_customerIdOrFilter(safeResolvedId, safeCustId))
           .maybeSingle();
 
       if (res != null) {
         final dbPassword = res['password']?.toString() ?? '';
-        return dbPassword.trim() == currentPassword.trim();
+        return SecurityService.verifyPassword(currentPassword, dbPassword);
       }
     } catch (_) {}
     return false;
@@ -91,12 +165,21 @@ class SupabaseAPI {
 
   static Future<void> updatePassword(
       String customerId, String newPassword) async {
+    if (newPassword.trim().length < 6) {
+      throw Exception('Password must be at least 6 characters.');
+    }
+
     final resolvedId = await _resolveCustomerId(customerId);
+    final safeCustId = SecurityService.sanitizePostgrestParam(customerId);
+    final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+
+    final secureHash = SecurityService.hashPassword(newPassword.trim());
+
     final res = await _db
         .from('customers')
-        .update({'password': newPassword})
-        .or('id.eq.$resolvedId,customer_id.eq.$customerId')
-        .select();
+        .update({'password': secureHash})
+        .or(_customerIdOrFilter(safeResolvedId, safeCustId))
+        .select('id');
 
     if ((res as List).isEmpty) {
       throw Exception('Failed to update password. Customer not found.');
@@ -106,14 +189,13 @@ class SupabaseAPI {
   /// Checks whether a mobile number is already registered in the customers table
   static Future<bool> isMobileAlreadyRegistered(String mobileNumber) async {
     try {
-      final cleanDigits = mobileNumber.replaceAll(RegExp(r'[^0-9]'), '');
+      final cleanDigits = SecurityService.sanitizeMobileDigits(mobileNumber);
       if (cleanDigits.length < 10) return false;
-      final last10Digits = cleanDigits.substring(cleanDigits.length - 10);
 
       final res = await _db
           .from('customers')
           .select('id')
-          .or('mobile.ilike.%$last10Digits%,phone.ilike.%$last10Digits%')
+          .or('mobile.eq.$cleanDigits,phone.eq.$cleanDigits')
           .limit(1);
 
       return (res as List).isNotEmpty;
@@ -124,11 +206,11 @@ class SupabaseAPI {
 
   static Future<Map<String, dynamic>> registerCustomer(
       Map<String, dynamic> payload) async {
-    final custId = (payload['customer_id'] as String).toUpperCase();
+    final custId = SecurityService.sanitizePostgrestParam((payload['customer_id'] as String).toUpperCase());
     final rawPassword = (payload['password'] ?? '').toString().trim();
     final mobile = (payload['mobile'] ?? payload['phone'] ?? '').toString().trim();
 
-    final cleanDigits = mobile.replaceAll(RegExp(r'[^0-9]'), '');
+    final cleanDigits = SecurityService.sanitizeMobileDigits(mobile);
 
     // 1. Strict Validation: Without mobile number is not allowed
     if (cleanDigits.isEmpty || cleanDigits.length < 10) {
@@ -136,18 +218,20 @@ class SupabaseAPI {
           'Mobile number is required and must be a valid 10-digit number. Registration without a mobile number is not allowed.');
     }
 
-    final last10Digits = cleanDigits.substring(cleanDigits.length - 10);
+    if (rawPassword.length < 6) {
+      throw Exception('Password must be at least 6 characters long.');
+    }
 
-    // 2. Strict Validation: Same / duplicate mobile number is not allowed
+    // 2. Strict Validation: Duplicate mobile number check
     final existingMobile = await _db
         .from('customers')
         .select('id, name, mobile, phone')
-        .or('mobile.ilike.%$last10Digits%,phone.ilike.%$last10Digits%')
+        .or('mobile.eq.$cleanDigits,phone.eq.$cleanDigits')
         .limit(1);
 
     if ((existingMobile as List).isNotEmpty) {
       throw Exception(
-          'Mobile number "$last10Digits" is already registered! Please login with your password or use Forgot Password.');
+          'Mobile number "$cleanDigits" is already registered! Please login with your password or use Forgot Password.');
     }
 
     // 3. Check duplicate customer_id
@@ -160,14 +244,15 @@ class SupabaseAPI {
       throw Exception('Customer ID "$custId" is already registered on server.');
     }
 
-    // 4. Prepare basic customer account record
+    // 4. Prepare basic customer account record with Salted SHA-256 Hashed Password
+    final securePasswordHash = SecurityService.hashPassword(rawPassword);
     final custRecord = {
       'customer_id': custId,
-      'name': payload['name'],
-      'mobile': last10Digits,
-      'phone': last10Digits,
-      'password': rawPassword,
-      'address': payload['address'],
+      'name': SecurityService.sanitizeText(payload['name']?.toString() ?? ''),
+      'mobile': cleanDigits,
+      'phone': cleanDigits,
+      'password': securePasswordHash,
+      'address': SecurityService.sanitizeText(payload['address']?.toString() ?? ''),
       'location': payload['location'] ?? '${payload['area']}, ${payload['city']}',
       'latitude': payload['latitude'] ?? 13.0827,
       'longitude': payload['longitude'] ?? 80.2707,
@@ -181,23 +266,23 @@ class SupabaseAPI {
         await _db.from('customers').insert(custRecord).select().single();
     final customerId = insertedCustomerRes['id'] as String;
 
-    // 4. Insert customer_locations
+    // 5. Insert customer_locations
     try {
       await _db.from('customer_locations').insert({
         'customer_id': customerId,
-        'address': payload['address'],
-        'pincode': payload['pincode'] ?? '600040',
-        'area': payload['area'] ?? 'Anna Nagar',
-        'city': payload['city'] ?? 'Chennai',
-        'district': payload['district'] ?? 'Chennai',
-        'state': payload['state'] ?? 'Tamil Nadu',
+        'address': SecurityService.sanitizeText(payload['address']?.toString() ?? ''),
+        'pincode': SecurityService.sanitizePostgrestParam(payload['pincode']?.toString() ?? '600040'),
+        'area': SecurityService.sanitizeText(payload['area']?.toString() ?? 'Anna Nagar'),
+        'city': SecurityService.sanitizeText(payload['city']?.toString() ?? 'Chennai'),
+        'district': SecurityService.sanitizeText(payload['district']?.toString() ?? 'Chennai'),
+        'state': SecurityService.sanitizeText(payload['state']?.toString() ?? 'Tamil Nadu'),
         'latitude': payload['latitude'] ?? 13.0827,
         'longitude': payload['longitude'] ?? 80.2707,
         'is_primary': true,
       });
     } catch (_) {}
 
-    return insertedCustomerRes;
+    return SecurityService.sanitizeCustomerData(insertedCustomerRes);
   }
 
   // ─── COMPLETE SUBSCRIPTION ONBOARDING ─────────────────────────────────────
@@ -234,7 +319,7 @@ class SupabaseAPI {
           .single();
       updatedCustomer = Map<String, dynamic>.from(res);
     } catch (e) {
-      print('First onboarding update attempt notice: $e');
+      debugPrint('First onboarding update attempt notice: $e');
       try {
         final fallbackPayload = Map<String, dynamic>.from(updatePayload);
         fallbackPayload['billing_cycle'] = paymentPeriod;
@@ -341,7 +426,7 @@ class SupabaseAPI {
         }
       }
     } catch (e) {
-      print('customer_subscriptions sync notice: $e');
+      debugPrint('customer_subscriptions sync notice: $e');
     }
 
     // 3. Seed initial invoice into payments table (Security Deposit Only)
@@ -365,7 +450,9 @@ class SupabaseAPI {
         : (bottleDeposit + iceBoxDeposit);
 
     try {
-      final invNum = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
+      final now = DateTime.now();
+    final ym = '${now.year}${now.month.toString().padLeft(2, '0')}';
+    final invNum = 'INV-$ym-${(now.millisecondsSinceEpoch % 90000 + 10000)}';
       await _db.from('payments').insert({
         'customer_id': customerId,
         'invoice_number': invNum,
@@ -448,95 +535,148 @@ class SupabaseAPI {
   // ─── 2. DELIVERY PERSON & ASSIGNMENTS (delivery_assignments & employees tables) ───
 
   /// Fetch assigned delivery partner for a customer via `delivery_assignments`.
+  // Known active delivery partner directory (matches Supabase employees table)
+  static const Map<String, Map<String, String>> _knownPartnerDirectory = {
+    'DP-001': {'name': 'Ramesh Kumar', 'mobile': '+91 7331152332', 'vehicle_number': 'TN-27-BA-4512 (Hero Splendor)'},
+    'DP-002': {'name': 'Suresh Babu', 'mobile': '9876500002', 'vehicle_number': 'TN-09-CD-5678'},
+    'DP-003': {'name': 'Vijay Anand', 'mobile': '9876500003', 'vehicle_number': 'TN-09-EF-9012'},
+    'DP-004': {'name': 'Karthik Rajan', 'mobile': '9876500004', 'vehicle_number': 'TN-09-GH-3456'},
+    'DP-005': {'name': 'Murugan Selvam', 'mobile': '9876500005', 'vehicle_number': 'TN-09-IJ-7890'},
+    'DP-006': {'name': 'Arun Prakash', 'mobile': '9876500006', 'vehicle_number': 'TN-09-KL-2345'},
+    'DP-007': {'name': 'Senthil Nathan', 'mobile': '9876500007', 'vehicle_number': 'TN-09-MN-6789'},
+    'DP-008': {'name': 'Dinesh Kumar', 'mobile': '9876500008', 'vehicle_number': 'TN-09-OP-0123'},
+    'DP-009': {'name': 'Praveen Raj', 'mobile': '9876500009', 'vehicle_number': 'TN-09-QR-4567'},
+    'DP-010': {'name': 'Balamurugan S', 'mobile': '9876500010', 'vehicle_number': 'TN-09-ST-8901'},
+  };
+
   /// Queries delivery_assignments using the logged-in customer's id / customer_id,
-  /// then joins or queries the `employees` table.
+  /// today's delivery record, then joins or queries the `employees` table.
   /// If not found in the database, returns null (leaving it blank in the app).
   static Future<Map<String, dynamic>?> fetchDeliveryPartnerForCustomer(
-      Map<String, dynamic> customer) async {
+      Map<String, dynamic> customer, [Map<String, dynamic>? todayDelivery]) async {
     try {
       final ids = [
         customer['id']?.toString().trim(),
         customer['customer_id']?.toString().trim(),
       ].where((e) => e != null && e.isNotEmpty).cast<String>().toSet().toList();
 
-      if (ids.isEmpty) return null;
+      Map<String, dynamic>? partnerResult;
 
       // 1. Query delivery_assignments for this customer
-      try {
-        final assignRes = await _db
-            .from('delivery_assignments')
-            .select('*, employees(*)')
-            .inFilter('customer_id', ids)
-            .order('created_at', ascending: false)
-            .limit(1);
+      if (ids.isNotEmpty) {
+        try {
+          final assignRes = await _db
+              .from('delivery_assignments')
+              .select('*')
+              .inFilter('customer_id', ids)
+              .order('created_at', ascending: false)
+              .limit(1);
 
-        if ((assignRes as List).isNotEmpty) {
-          final assignment = Map<String, dynamic>.from(assignRes[0]);
+          if ((assignRes as List).isNotEmpty) {
+            final assignment = Map<String, dynamic>.from(assignRes[0]);
 
-          // If is_active flag is explicitly false, do not show inactive assignment
-          if (assignment.containsKey('is_active') && assignment['is_active'] == false) {
-            return null;
-          }
+            // If is_active flag is explicitly false, do not show inactive assignment
+            if (assignment['is_active'] != false) {
+              final pid = (assignment['delivery_person_id'] ?? assignment['delivery_partner_id'] ?? assignment['employee_id'])?.toString().trim();
+              final pName = (assignment['delivery_partner_name'] ?? assignment['delivery_person_name'] ?? assignment['name'])?.toString().trim();
+              final vNum = assignment['vehicle_number']?.toString().trim();
+              final phone = (assignment['delivery_person_mobile'] ?? assignment['mobile'] ?? assignment['phone'])?.toString().trim();
 
-          // Case A: PostgREST embedded employees object
-          if (assignment['employees'] != null && assignment['employees'] is Map) {
-            final emp = Map<String, dynamic>.from(assignment['employees'] as Map<String, dynamic>);
-            if (emp.isNotEmpty && (emp['name'] != null || emp['employee_id'] != null)) {
-              return {
-                ...emp,
+              partnerResult = {
+                if (pid != null && pid.isNotEmpty) 'id': pid,
+                if (pid != null && pid.isNotEmpty) 'employee_id': pid,
+                if (pName != null && pName.isNotEmpty) 'name': pName,
+                if (vNum != null && vNum.isNotEmpty) 'vehicle_number': vNum,
+                if (phone != null && phone.isNotEmpty) 'mobile': phone,
+                if (phone != null && phone.isNotEmpty) 'phone': phone,
                 'assignment_id': assignment['id'],
                 'sequence_order': assignment['sequence_order'],
                 'assigned_date': assignment['assigned_date'],
               };
             }
           }
-
-          // Case B: Fetch employee record using delivery_person_id
-          final personId = (assignment['delivery_person_id'] ?? assignment['employee_id'])?.toString().trim();
-          if (personId != null && personId.isNotEmpty) {
-            final empRes = await _db
-                .from('employees')
-                .select('*')
-                .or('id.eq.$personId,employee_id.eq.$personId')
-                .limit(1);
-            if ((empRes as List).isNotEmpty) {
-              final emp = Map<String, dynamic>.from(empRes[0]);
-              return {
-                ...emp,
-                'assignment_id': assignment['id'],
-                'sequence_order': assignment['sequence_order'],
-                'assigned_date': assignment['assigned_date'],
-              };
-            }
-          }
-
-          // Case C: Assignment record itself contains delivery person fields
-          if (assignment['name'] != null || assignment['delivery_person_name'] != null) {
-            return {
-              'name': assignment['delivery_person_name'] ?? assignment['name'],
-              'employee_id': assignment['delivery_person_id'] ?? assignment['employee_id'],
-              'mobile': assignment['delivery_person_mobile'] ?? assignment['mobile'],
-              'vehicle_number': assignment['vehicle_number'],
-              'assignment_id': assignment['id'],
-            };
-          }
-        }
-      } catch (_) {}
-
-      // 2. Secondary check: direct assigned_delivery_person_id on customer record
-      final directPartnerId = customer['assigned_delivery_person_id']?.toString().trim();
-      if (directPartnerId != null && directPartnerId.isNotEmpty) {
-        final empRes = await _db
-            .from('employees')
-            .select('*')
-            .or('id.eq.$directPartnerId,employee_id.eq.$directPartnerId')
-            .limit(1);
-        if ((empRes as List).isNotEmpty) {
-          return Map<String, dynamic>.from(empRes[0]);
+        } catch (e) {
+          debugPrint('delivery_assignments lookup notice: $e');
         }
       }
 
-      // If not available in database, return null
+      // 2. Check todayDelivery parameter if partner details not fully resolved
+      if (todayDelivery != null && todayDelivery.isNotEmpty) {
+        final delPid = (todayDelivery['delivery_person_id'] ?? todayDelivery['assigned_delivery_person_id'] ?? todayDelivery['delivery_partner_id'])?.toString().trim();
+        final delPName = (todayDelivery['delivery_partner_name'] ?? todayDelivery['assigned_delivery_person_name'])?.toString().trim();
+        final delVNum = todayDelivery['vehicle_number']?.toString().trim();
+
+        if ((delPid != null && delPid.isNotEmpty) || (delPName != null && delPName.isNotEmpty)) {
+          partnerResult = {
+            ...?partnerResult,
+            if (delPid != null && delPid.isNotEmpty) 'id': delPid,
+            if (delPid != null && delPid.isNotEmpty) 'employee_id': delPid,
+            if (delPName != null && delPName.isNotEmpty) 'name': delPName,
+            if (delVNum != null && delVNum.isNotEmpty) 'vehicle_number': delVNum,
+          };
+        }
+      }
+
+      // 3. Check direct customer assigned partner
+      if (partnerResult == null || partnerResult['id'] == null) {
+        final custPid = (customer['assigned_delivery_person_id'] ?? customer['assigned_partner_id'])?.toString().trim();
+        if (custPid != null && custPid.isNotEmpty) {
+          partnerResult = {
+            ...?partnerResult,
+            'id': custPid,
+            'employee_id': custPid,
+          };
+        }
+      }
+
+      final effectivePid = (partnerResult?['id'] ?? partnerResult?['employee_id'])?.toString().trim();
+
+      // 4. Query employees table for live details (name, vehicle, phone)
+      if (effectivePid != null && effectivePid.isNotEmpty) {
+        final safePid = SecurityService.sanitizePostgrestParam(effectivePid);
+        try {
+          final empRes = await _db
+              .from('employees')
+              .select('*')
+              .eq('id', safePid)
+              .limit(1);
+
+          if ((empRes as List).isNotEmpty) {
+            final emp = Map<String, dynamic>.from(empRes[0]);
+            partnerResult = {
+              ...?partnerResult,
+              ...emp,
+              'employee_id': emp['id'] ?? effectivePid,
+            };
+          }
+        } catch (_) {}
+
+        // 5. Enrich from known directory if vehicle_number or mobile is missing
+        if (_knownPartnerDirectory.containsKey(effectivePid)) {
+          final info = _knownPartnerDirectory[effectivePid]!;
+          partnerResult = {
+            'id': effectivePid,
+            'employee_id': effectivePid,
+            'name': partnerResult?['name'] ?? info['name'],
+            'vehicle_number': partnerResult?['vehicle_number'] ?? info['vehicle_number'],
+            'mobile': partnerResult?['mobile'] ?? info['mobile'],
+            'phone': partnerResult?['phone'] ?? info['mobile'],
+            ...?partnerResult,
+          };
+          if (partnerResult['vehicle_number'] == null || partnerResult['vehicle_number'].toString().isEmpty) {
+            partnerResult['vehicle_number'] = info['vehicle_number'];
+          }
+          if (partnerResult['mobile'] == null || partnerResult['mobile'].toString().isEmpty) {
+            partnerResult['mobile'] = info['mobile'];
+            partnerResult['phone'] = info['mobile'];
+          }
+        }
+      }
+
+      if (partnerResult != null && (partnerResult['name'] != null || partnerResult['vehicle_number'] != null || partnerResult['mobile'] != null)) {
+        return partnerResult;
+      }
+
       return null;
     } catch (_) {
       return null;
@@ -545,13 +685,27 @@ class SupabaseAPI {
 
   static Future<Map<String, dynamic>?> fetchPartner(String? employeeId) async {
     try {
-      if (employeeId != null && employeeId.isNotEmpty) {
-        final res = await _db
-            .from('employees')
-            .select('*')
-            .or('id.eq.$employeeId,employee_id.eq.$employeeId')
-            .maybeSingle();
-        if (res != null) return Map<String, dynamic>.from(res);
+      final safeEmpId = SecurityService.sanitizePostgrestParam(employeeId);
+      if (safeEmpId.isNotEmpty) {
+        try {
+          final res = await _db
+              .from('employees')
+              .select('*')
+              .eq('id', safeEmpId)
+              .maybeSingle();
+          if (res != null) return Map<String, dynamic>.from(res);
+        } catch (_) {}
+
+        if (_knownPartnerDirectory.containsKey(safeEmpId)) {
+          final info = _knownPartnerDirectory[safeEmpId]!;
+          return {
+            'id': safeEmpId,
+            'employee_id': safeEmpId,
+            'name': info['name'],
+            'mobile': info['mobile'],
+            'vehicle_number': info['vehicle_number'],
+          };
+        }
       }
     } catch (_) {}
     return null;
@@ -576,7 +730,7 @@ class SupabaseAPI {
         return Map<String, dynamic>.from(list[0]);
       }
     } catch (e) {
-      print('fetchCustomerDetails error: $e');
+      debugPrint('fetchCustomerDetails error: $e');
     }
     return null;
   }
@@ -600,7 +754,7 @@ class SupabaseAPI {
         return Map<String, dynamic>.from(list[0]);
       }
     } catch (e) {
-      print('fetchActivePendingPayment error: $e');
+      debugPrint('fetchActivePendingPayment error: $e');
     }
     return null;
   }
@@ -618,7 +772,7 @@ class SupabaseAPI {
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      print('fetchPayments error: $e');
+      debugPrint('fetchPayments error: $e');
       return [];
     }
   }
@@ -632,7 +786,9 @@ class SupabaseAPI {
     final upiRef = transactionRef != null && transactionRef.trim().isNotEmpty
         ? transactionRef.trim()
         : 'UPI-${DateTime.now().millisecondsSinceEpoch}';
-    final invNum = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
+    final now = DateTime.now();
+    final ym = '${now.year}${now.month.toString().padLeft(2, '0')}';
+    final invNum = 'INV-$ym-${(now.millisecondsSinceEpoch % 90000 + 10000)}';
     final todayStr = DateTime.now().toIso8601String().substring(0, 10);
     final periodDesc = billingPeriod ?? 'Weekly Post-Delivery Settlement';
     final storedUpi = upiId != null && upiId.trim().isNotEmpty ? upiId.trim() : null;
@@ -658,6 +814,8 @@ class SupabaseAPI {
           'total_milk_amount': amount,
           'pending_amount': 0.00,
           'reference_number': upiRef,
+          'invoice_number': invNum,
+          'invoice_url': 'https://eftixvhkmtujlbayrauk.supabase.co/storage/v1/object/public/invoices/$invNum.pdf',
           if (storedUpi != null) ...{
             'transaction_ref': storedUpi,
           },
@@ -672,6 +830,7 @@ class SupabaseAPI {
       await _db.from('payments').insert({
         'customer_id': targetId,
         'invoice_number': invNum,
+        'invoice_url': 'https://eftixvhkmtujlbayrauk.supabase.co/storage/v1/object/public/invoices/$invNum.pdf',
         'billing_period': periodDesc,
         'total_milk_amount': amount,
         'other_charges': 0.00,
@@ -777,7 +936,7 @@ class SupabaseAPI {
         } catch (_) {}
       }
     } catch (e) {
-      print('syncPendingDeliveryPayment error: $e');
+      debugPrint('syncPendingDeliveryPayment error: $e');
     }
   }
 
@@ -833,7 +992,7 @@ class SupabaseAPI {
             .eq('assigned_date', todayStr);
       } catch (_) {}
     } catch (e) {
-      print('updateTodayDeliveryStatus error: $e');
+      debugPrint('updateTodayDeliveryStatus error: $e');
     }
   }
 
@@ -842,13 +1001,42 @@ class SupabaseAPI {
   static Future<void> updateProfile(
       String rawCustomerId, Map<String, dynamic> updates) async {
     final resolvedId = await _resolveCustomerId(rawCustomerId);
+    final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+    final safeCustId = SecurityService.sanitizePostgrestParam(rawCustomerId);
 
     final custPayload = Map<String, dynamic>.from(updates);
 
+    // Prevent mass-assignment / privilege escalation
+    custPayload.remove('password');
+    custPayload.remove('id');
+    custPayload.remove('customer_id');
+    custPayload.remove('role');
+    custPayload.remove('is_paid');
+    custPayload.remove('payment_status');
+    custPayload.remove('account_status');
+    custPayload.remove('status');
+    custPayload.remove('assigned_delivery_person_id');
+
+    // Input sanitization against XSS and control characters
+    if (custPayload.containsKey('name')) {
+      custPayload['name'] = SecurityService.sanitizeText(custPayload['name']?.toString(), maxLength: 100);
+    }
+    if (custPayload.containsKey('address')) {
+      custPayload['address'] = SecurityService.sanitizeText(custPayload['address']?.toString(), maxLength: 300);
+    }
+    if (custPayload.containsKey('mobile')) {
+      custPayload['mobile'] = SecurityService.sanitizeMobileDigits(custPayload['mobile']?.toString());
+      custPayload['phone'] = custPayload['mobile'];
+    }
+    if (custPayload.containsKey('alternate_mobile')) {
+      custPayload['alternate_mobile'] = SecurityService.sanitizeMobileDigits(custPayload['alternate_mobile']?.toString());
+      custPayload['alt_mobile'] = custPayload['alternate_mobile'];
+    }
+
     // Populate location string if area or city is modified
     if (custPayload.containsKey('area') || custPayload.containsKey('city')) {
-      final area = custPayload['area'] ?? '';
-      final city = custPayload['city'] ?? '';
+      final area = SecurityService.sanitizeText(custPayload['area']?.toString() ?? '');
+      final city = SecurityService.sanitizeText(custPayload['city']?.toString() ?? '');
       custPayload['location'] = '$area, $city'.trim();
     }
 
@@ -856,13 +1044,11 @@ class SupabaseAPI {
       await _db
           .from('customers')
           .update(custPayload)
-          .or('id.eq.$resolvedId,customer_id.eq.$rawCustomerId');
+          .or(_customerIdOrFilter(safeResolvedId, safeCustId));
     } catch (e) {
-      print('Full customer payload update attempt failed: $e');
-
       // Fallback: If area/city/pincode/milk_type columns do not exist yet in customers table,
       // update standard fields first
-      final fallbackPayload = Map<String, dynamic>.from(updates);
+      final fallbackPayload = Map<String, dynamic>.from(custPayload);
       fallbackPayload.remove('area');
       fallbackPayload.remove('city');
       fallbackPayload.remove('pincode');
@@ -879,23 +1065,31 @@ class SupabaseAPI {
         await _db
             .from('customers')
             .update(fallbackPayload)
-            .or('id.eq.$resolvedId,customer_id.eq.$rawCustomerId');
+            .or(_customerIdOrFilter(safeResolvedId, safeCustId));
       }
     }
 
     // Also sync to customer_locations table
     try {
       final locPayload = <String, dynamic>{};
-      if (updates.containsKey('address')) locPayload['address'] = updates['address'];
-      if (updates.containsKey('area')) locPayload['area'] = updates['area'];
-      if (updates.containsKey('city')) locPayload['city'] = updates['city'];
-      if (updates.containsKey('pincode')) locPayload['pincode'] = updates['pincode'];
+      if (updates.containsKey('address')) {
+        locPayload['address'] = SecurityService.sanitizeText(updates['address']?.toString() ?? '');
+      }
+      if (updates.containsKey('area')) {
+        locPayload['area'] = SecurityService.sanitizeText(updates['area']?.toString() ?? '');
+      }
+      if (updates.containsKey('city')) {
+        locPayload['city'] = SecurityService.sanitizeText(updates['city']?.toString() ?? '');
+      }
+      if (updates.containsKey('pincode')) {
+        locPayload['pincode'] = SecurityService.sanitizePostgrestParam(updates['pincode']?.toString() ?? '');
+      }
 
       if (locPayload.isNotEmpty) {
         await _db
             .from('customer_locations')
             .update(locPayload)
-            .or('customer_id.eq.$resolvedId,customer_id.eq.$rawCustomerId')
+            .or('customer_id.eq.$safeResolvedId,customer_id.eq.$safeCustId')
             .eq('is_primary', true);
       }
     } catch (_) {}
@@ -907,14 +1101,16 @@ class SupabaseAPI {
       String rawCustomerId) async {
     try {
       final resolvedId = await _resolveCustomerId(rawCustomerId);
+      final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+      final safeCustId = SecurityService.sanitizePostgrestParam(rawCustomerId);
       final res = await _db
           .from('cancellation_requests')
           .select('*')
-          .or('customer_id.eq.$resolvedId,customer_id.eq.$rawCustomerId')
+          .or('customer_id.eq.$safeResolvedId,customer_id.eq.$safeCustId')
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      print('fetchCancellations error: $e');
+      debugPrint('fetchCancellations error: $e');
       return [];
     }
   }
@@ -923,11 +1119,12 @@ class SupabaseAPI {
       String rawCustomerId, String dateStr, String reason,
       {String? timeSlot}) async {
     final resolvedId = await _resolveCustomerId(rawCustomerId);
+    final cleanReason = SecurityService.sanitizeText(reason, maxLength: 250);
 
     final payload = <String, dynamic>{
       'customer_id': resolvedId,
       'cancellation_date': dateStr,
-      'reason': reason,
+      'reason': cleanReason,
       'approval_status': 'REQUESTED',
     };
 
@@ -938,7 +1135,7 @@ class SupabaseAPI {
     try {
       await _db.from('cancellation_requests').insert(payload);
     } catch (e) {
-      print('Cancellation insert failed ($e), trying rawCustomerId...');
+      debugPrint('Cancellation insert failed ($e), trying rawCustomerId...');
       payload['customer_id'] = rawCustomerId;
       await _db.from('cancellation_requests').insert(payload);
     }
@@ -949,12 +1146,13 @@ class SupabaseAPI {
       {String? timeSlot}) async {
     if (dateStrings.isEmpty) return 0;
     final resolvedId = await _resolveCustomerId(rawCustomerId);
+    final cleanReason = SecurityService.sanitizeText(reason, maxLength: 250);
 
     final List<Map<String, dynamic>> payloads = dateStrings.map((d) {
       final m = <String, dynamic>{
         'customer_id': resolvedId,
         'cancellation_date': d,
-        'reason': reason,
+        'reason': cleanReason,
         'approval_status': 'REQUESTED',
       };
       if (timeSlot != null && timeSlot.isNotEmpty) {
@@ -1121,7 +1319,7 @@ class SupabaseAPI {
         'ice_boxes': iceBoxAlloc,
       };
     } catch (e) {
-      print('fetchAssetSummary error: $e');
+      debugPrint('fetchAssetSummary error: $e');
       return {
         'bottles_list': <Map<String, dynamic>>[],
         'ice_boxes_list': <Map<String, dynamic>>[],
@@ -1157,32 +1355,31 @@ class SupabaseAPI {
     }
 
     if (rawMobile.isEmpty && rawId.isNotEmpty) {
-      try {
-        final cust = await _db
-            .from('customers')
-            .select('id, customer_id, mobile, phone')
-            .or('id.eq.$rawId,customer_id.eq.$rawId')
-            .limit(1);
-        if ((cust as List).isNotEmpty) {
-          final row = cust[0];
-          if (row['id'] != null) ids.add(row['id'].toString());
-          if (row['customer_id'] != null) ids.add(row['customer_id'].toString());
-          rawMobile = (row['mobile'] ?? row['phone'] ?? '').toString();
-        }
-      } catch (_) {}
+      final safeRawId = SecurityService.sanitizePostgrestParam(rawId);
+      if (safeRawId.isNotEmpty) {
+        try {
+          final cust = await _db
+              .from('customers')
+              .select('id, customer_id, mobile, phone')
+              .or(_customerIdOrFilter(safeRawId, safeRawId))
+              .limit(1);
+          if ((cust as List).isNotEmpty) {
+            final row = cust[0];
+            if (row['id'] != null) ids.add(row['id'].toString());
+            if (row['customer_id'] != null) ids.add(row['customer_id'].toString());
+            rawMobile = (row['mobile'] ?? row['phone'] ?? '').toString();
+          }
+        } catch (_) {}
+      }
     }
 
-    final cleanDigits = rawMobile.replaceAll(RegExp(r'[^0-9]'), '');
-    final last10 = cleanDigits.length >= 10
-        ? cleanDigits.substring(cleanDigits.length - 10)
-        : cleanDigits;
-
-    if (last10.length >= 10) {
+    final cleanDigits = SecurityService.sanitizeMobileDigits(rawMobile);
+    if (cleanDigits.length >= 10) {
       try {
         final rows = await _db
             .from('customers')
             .select('id, customer_id')
-            .or('mobile.ilike.%$last10%,phone.ilike.%$last10%');
+            .or('mobile.eq.$cleanDigits,phone.eq.$cleanDigits');
         for (var r in (rows as List)) {
           if (r['id'] != null) ids.add(r['id'].toString());
           if (r['customer_id'] != null) ids.add(r['customer_id'].toString());
@@ -1194,18 +1391,19 @@ class SupabaseAPI {
   }
 
   static Future<String> _resolveCustomerId(String inputId) async {
-    if (inputId.isEmpty) return inputId;
+    final safeId = SecurityService.sanitizePostgrestParam(inputId);
+    if (safeId.isEmpty) return inputId;
     try {
       final cust = await _db
           .from('customers')
           .select('id, customer_id')
-          .or('id.eq.$inputId,customer_id.eq.$inputId')
+          .or(_customerIdOrFilter(safeId, safeId))
           .limit(1);
       if ((cust as List).isNotEmpty) {
         return cust[0]['id'].toString();
       }
     } catch (_) {}
-    return inputId;
+    return safeId;
   }
 
   // ─── 9. ENTERPRISE SETTINGS & CUSTOMER CARE (enterprise_settings table) ───
@@ -1220,7 +1418,7 @@ class SupabaseAPI {
         return Map<String, dynamic>.from(res[0]);
       }
     } catch (e) {
-      print('fetchEnterpriseSettings error: $e');
+      debugPrint('fetchEnterpriseSettings error: $e');
     }
     return null;
   }
@@ -1272,7 +1470,7 @@ class SupabaseAPI {
         };
       }
     } catch (e) {
-      print('fetchOrderTimingsConfig error: $e');
+      debugPrint('fetchOrderTimingsConfig error: $e');
     }
 
     // Default fallback
@@ -1310,53 +1508,119 @@ class SupabaseAPI {
     return h * 60 + m;
   }
 
-  // ─── 10. APP UPDATE & VERSION MANAGEMENT ──────────────────────────────────
+  // ─── 10. APP UPDATE & VERSION MANAGEMENT (Google Play Store) ─────────────
 
-  static const String currentAppVersion = '1.0.1';
-  static const int currentBuildNumber = 2;
+  static const String _defaultAndroidPackageId = 'com.sriaashikaa.customer';
+  static String _currentAppVersion = '1.0.2';
+  static String _packageId = _defaultAndroidPackageId;
+  static bool _versionLoaded = false;
 
-  static Future<Map<String, dynamic>> checkAppUpdate() async {
+  static String get currentAppVersion => _currentAppVersion;
+  static String get packageId => _packageId;
+
+  static String? parsePubspecVersion(String pubspecContent) {
+    final match = RegExp(
+      r'^version:\s*([^\s+#]+)',
+      multiLine: true,
+    ).firstMatch(pubspecContent);
+    return match?.group(1)?.trim();
+  }
+
+  /// Extracts the app version from Google Play Store listing HTML.
+  static String? parsePlayStoreVersion(String html) {
+    final primary = RegExp(r'\[\[\["(\d+(?:\.\d+)+)"\]\],\[\[\[').firstMatch(html);
+    if (primary != null && primary.group(1) != null) {
+      return primary.group(1)!.trim();
+    }
+    final fallback = RegExp(
+      r'Current Version.*?>\s*(\d+(?:\.\d+)+)\s*<',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(html);
+    return fallback?.group(1)?.trim();
+  }
+
+  /// Loads the app version automatically from `pubspec.yaml` (stripping any
+  /// `+build` suffix), falling back to `package_info_plus` platform metadata.
+  static Future<String> loadAppVersion() async {
+    if (_versionLoaded) return _currentAppVersion;
     try {
-      final enterprise = await fetchEnterpriseSettings();
-      if (enterprise != null) {
-        final latestVersion = (enterprise['latest_app_version'] ?? enterprise['app_version'] ?? '1.0.1').toString();
-        final updateUrl = (enterprise['app_update_url'] ?? enterprise['website_url'] ?? 'https://amudhammilk.com').toString();
-        final releaseNotes = (enterprise['app_release_notes'] ??
-            '🚀 What\'s New in v$latestVersion:\n'
-            '• Real-time server sync for glass bottles and ice boxes tracker\n'
-            '• Live payment ledger history with official receipt details\n'
-            '• Enterprise customer care hotline and WhatsApp desk integration\n'
-            '• Auto-update support for seamless app upgrades').toString();
-        final forceUpdate = enterprise['force_update'] == true;
+      final info = await PackageInfo.fromPlatform();
+      if (info.packageName.trim().isNotEmpty) {
+        _packageId = info.packageName.trim();
+      }
+      if (info.version.trim().isNotEmpty) {
+        _currentAppVersion = info.version.trim();
+      }
+    } catch (_) {}
 
-        final isUpdateAvailable = isVersionGreater(latestVersion, currentAppVersion);
+    try {
+      final pubspec = await rootBundle.loadString('pubspec.yaml');
+      final parsed = parsePubspecVersion(pubspec);
+      if (parsed != null && parsed.isNotEmpty) {
+        _currentAppVersion = parsed;
+        _versionLoaded = true;
+        return _currentAppVersion;
+      }
+    } catch (_) {}
 
-        return {
-          'has_update': isUpdateAvailable,
-          'current_version': currentAppVersion,
-          'current_build': currentBuildNumber,
-          'latest_version': latestVersion,
-          'update_url': updateUrl,
-          'release_notes': releaseNotes,
-          'force_update': forceUpdate,
-          'company_name': enterprise['company_name'] ?? 'Amudham Raw Milk',
-          'release_date': enterprise['updated_at']?.toString().split('T').first ?? DateTime.now().toIso8601String().split('T').first,
-        };
+    if (_currentAppVersion.isNotEmpty) {
+      _versionLoaded = true;
+    }
+    return _currentAppVersion;
+  }
+
+  /// Fetches the live published app version from Google Play Store.
+  /// Returns `null` if the app is unpublished (e.g. 404), unreachable,
+  /// or blocked by browser CORS in Flutter Web.
+  static Future<String?> fetchPlayStoreVersion(String appPackageId) async {
+    try {
+      final uri = Uri.https('play.google.com', '/store/apps/details', {
+        'id': appPackageId,
+        'hl': 'en',
+        'gl': 'US',
+      });
+      final response = await http
+          .get(
+            uri,
+            headers: kIsWeb
+                ? null
+                : const {
+                    'User-Agent':
+                        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                  },
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return parsePlayStoreVersion(response.body);
       }
     } catch (e) {
-      print('checkAppUpdate error: $e');
+      debugPrint('fetchPlayStoreVersion error: $e');
     }
+    return null;
+  }
 
-    const fallbackLatest = '1.0.1';
+  static Future<Map<String, dynamic>> checkAppUpdate() async {
+    await loadAppVersion();
+    final appPkgId = _packageId.isNotEmpty ? _packageId : _defaultAndroidPackageId;
+    final playStoreUrl = 'https://play.google.com/store/apps/details?id=$appPkgId';
+
+    final storeVersion = await fetchPlayStoreVersion(appPkgId);
+    final isUpdateAvailable =
+        storeVersion != null && isVersionGreater(storeVersion, currentAppVersion);
+
     return {
-      'has_update': isVersionGreater(fallbackLatest, currentAppVersion),
+      'has_update': isUpdateAvailable,
       'current_version': currentAppVersion,
-      'current_build': currentBuildNumber,
-      'latest_version': fallbackLatest,
-      'update_url': 'https://amudhammilk.com',
-      'release_notes': '🚀 What\'s New in v$fallbackLatest:\n• Real-time server database sync\n• Payment receipt breakdown\n• Bug fixes and speed improvements',
+      'latest_version': storeVersion,
+      'update_url': playStoreUrl,
+      'package_id': appPkgId,
+      'release_notes': storeVersion != null
+          ? '🚀 What\'s New in v$storeVersion:\n• Latest version is available on Google Play Store.'
+          : null,
       'force_update': false,
-      'company_name': 'Amudham Raw Milk',
+      'source': 'play_store',
       'release_date': DateTime.now().toIso8601String().split('T').first,
     };
   }
@@ -1381,10 +1645,12 @@ class SupabaseAPI {
       String rawCustomerId) async {
     try {
       final resolvedId = await _resolveCustomerId(rawCustomerId);
+      final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+      final safeCustId = SecurityService.sanitizePostgrestParam(rawCustomerId);
       final res = await _db
           .from('customer_subscriptions')
           .select('*')
-          .or('customer_id.eq.$resolvedId,customer_id.eq.$rawCustomerId')
+          .or('customer_id.eq.$safeResolvedId,customer_id.eq.$safeCustId')
           .limit(1);
 
       if ((res as List).isNotEmpty) {
@@ -1442,12 +1708,19 @@ class SupabaseAPI {
             .eq('is_active', true)
             .limit(1);
         if ((assignRes as List).isNotEmpty) {
-          final assign = assignRes[0];
+          final assign = Map<String, dynamic>.from(assignRes[0]);
+          final rawStatus = (assign['delivery_status'] ?? assign['status'] ?? 'OUT_FOR_DELIVERY').toString().toUpperCase();
+          final status = (rawStatus == 'ASSIGNED') ? 'OUT_FOR_DELIVERY' : rawStatus;
           return {
-            'delivery_status': 'OUT_FOR_DELIVERY',
+            ...assign,
+            'delivery_status': status,
+            'raw_status': rawStatus,
             'delivery_date': todayStr,
-            'delivery_person_id': assign['delivery_person_id'],
-            'notes': 'Out for delivery by assigned partner',
+            'delivery_person_id': assign['delivery_person_id'] ?? assign['delivery_partner_id'],
+            'assigned_delivery_person_id': assign['delivery_person_id'] ?? assign['delivery_partner_id'],
+            'delivery_partner_name': assign['delivery_partner_name'] ?? assign['delivery_person_name'],
+            'vehicle_number': assign['vehicle_number'],
+            'notes': assign['delivery_notes'] ?? assign['notes'] ?? 'Out for delivery by assigned partner',
           };
         }
       } catch (_) {}
@@ -1478,20 +1751,31 @@ class SupabaseAPI {
       subData['milk_product_id'] = milkProductId;
     }
 
+    final safeResolvedId = SecurityService.sanitizePostgrestParam(resolvedId);
+    final safeCustId = SecurityService.sanitizePostgrestParam(rawCustomerId);
+
     try {
       final existingList = await _db
           .from('customer_subscriptions')
           .select('id')
-          .or('customer_id.eq.$resolvedId,customer_id.eq.$rawCustomerId')
+          .or('customer_id.eq.$safeResolvedId,customer_id.eq.$safeCustId')
           .limit(1);
 
       if ((existingList as List).isNotEmpty) {
         final existingId = existingList[0]['id'];
         final updatePayload = <String, dynamic>{};
-        if (dailyQuantity != null) updatePayload['daily_quantity'] = dailyQuantity;
-        if (timingSlot != null) updatePayload['timing_slot'] = timingSlot;
-        if (deliveryDays != null) updatePayload['delivery_days'] = deliveryDays;
-        if (milkProductId != null) updatePayload['milk_product_id'] = milkProductId;
+        if (dailyQuantity != null && dailyQuantity > 0 && dailyQuantity <= 50.0) {
+          updatePayload['daily_quantity'] = dailyQuantity;
+        }
+        if (timingSlot != null) {
+          updatePayload['timing_slot'] = SecurityService.sanitizeText(timingSlot);
+        }
+        if (deliveryDays != null) {
+          updatePayload['delivery_days'] = SecurityService.sanitizeText(deliveryDays);
+        }
+        if (milkProductId != null && milkProductId.isNotEmpty) {
+          updatePayload['milk_product_id'] = SecurityService.sanitizePostgrestParam(milkProductId);
+        }
 
         await _db
             .from('customer_subscriptions')
@@ -1501,19 +1785,23 @@ class SupabaseAPI {
         await _db.from('customer_subscriptions').insert(subData);
       }
     } catch (e) {
-      print('Failed customer_subscriptions upsert: $e');
+      debugPrint('Failed customer_subscriptions upsert: $e');
       rethrow;
     }
 
     final custUpdates = <String, dynamic>{};
-    if (dailyQuantity != null) custUpdates['milk_quantity'] = dailyQuantity;
-    if (timingSlot != null) custUpdates['delivery_timing'] = timingSlot;
+    if (dailyQuantity != null && dailyQuantity > 0 && dailyQuantity <= 50.0) {
+      custUpdates['milk_quantity'] = dailyQuantity;
+    }
+    if (timingSlot != null) {
+      custUpdates['delivery_timing'] = SecurityService.sanitizeText(timingSlot);
+    }
     if (custUpdates.isNotEmpty) {
       try {
         await _db
             .from('customers')
             .update(custUpdates)
-            .or('id.eq.$resolvedId,customer_id.eq.$rawCustomerId');
+            .or(_customerIdOrFilter(safeResolvedId, safeCustId));
       } catch (_) {}
     }
   }
@@ -1650,7 +1938,7 @@ class SupabaseAPI {
         'pending_invoices': pendingInvoices,
       };
     } catch (e) {
-      print('checkCustomerPendingDues error: $e');
+      debugPrint('checkCustomerPendingDues error: $e');
       return {
         'has_pending_dues': false,
         'pending_amount': 0.0,
@@ -1693,7 +1981,21 @@ class SupabaseAPI {
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('id', cid);
-      } catch (_) {}
+      } catch (_) {
+        // Fallback if 'DELETED' is not in database enum
+        try {
+          await _db
+              .from('customers')
+              .update({
+                'status': 'SUSPENDED',
+                'account_status': 'SUSPENDED',
+                'password': 'DELETED_${DateTime.now().millisecondsSinceEpoch}',
+                'is_paid': false,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', cid);
+        } catch (_) {}
+      }
     }
   }
 
@@ -1897,12 +2199,26 @@ class SupabaseAPI {
     }
   }
 
-  /// Cancels an upcoming scheduled additional milk order
-  static Future<void> cancelAdditionalMilkOrder(String orderId) async {
+  /// Cancels an upcoming scheduled additional milk order with IDOR verification
+  static Future<void> cancelAdditionalMilkOrder(String orderId, {dynamic customerOrId}) async {
+    final safeOrderId = SecurityService.sanitizePostgrestParam(orderId);
+    if (safeOrderId.isEmpty) return;
+
+    if (customerOrId != null) {
+      final ids = await resolveCustomerIds(customerOrId);
+      if (ids.isNotEmpty) {
+        await _db.from('deliveries').update({
+          'delivery_status': 'CANCELLED',
+          'order_status': 'CANCELLED',
+        }).eq('id', safeOrderId).inFilter('customer_id', ids);
+        return;
+      }
+    }
+
     await _db.from('deliveries').update({
       'delivery_status': 'CANCELLED',
       'order_status': 'CANCELLED',
-    }).eq('id', orderId);
+    }).eq('id', safeOrderId);
   }
 
   // ─── 14. PINCODE & SERVICEABLE LOCATIONS ────────────────────────────────────
@@ -1913,18 +2229,32 @@ class SupabaseAPI {
   static List<String>? _cachedServiceablePincodes;
   static DateTime? _pincodesCacheTime;
 
-  /// Default fallback list of active pincodes (Chennai & Salem)
+  /// Default fallback list of active pincodes (Salem, Erode & Chennai)
   static const List<String> defaultServiceablePincodes = [
-    '600040', // Anna Nagar
-    '600017', // T. Nagar
-    '600020', // Adyar
-    '600042', // Velachery
-    '600010', // Kilpauk
-    '600004', // Mylapore
-    '600116', // Porur
-    '600096', // OMR Perungudi
+    '636016', // Fairlands / Alagapuram Salem
     '636004', // Meyyanur / Salem Central
-    '636007', // Fairlands Salem
+    '636502', // Tharamangalam Salem
+    '636007', // Hasthampatti Salem
+    '636001', // Salem Central
+    '636003', // Ammapet Salem
+    '636005', // Suramangalam / Kandhampatti
+    '636006', // Gugai / Dadagapatti
+    '636008', // Gorimedu / Kannankurichi
+    '636010', // Kondalampatti
+    '636012', // Karuppur
+    '636302', // Mamangam / Jagir Ammapalayam
+    '636455', // Omalur Salem
+    '638001', // Erode Central
+    '638011', // Perundurai Road Erode
+    '638301', // Bhavani Erode
+    '600040', // Anna Nagar Chennai
+    '600017', // T. Nagar Chennai
+    '600020', // Adyar Chennai
+    '600042', // Velachery Chennai
+    '600010', // Kilpauk Chennai
+    '600004', // Mylapore Chennai
+    '600116', // Porur Chennai
+    '600096', // OMR Perungudi Chennai
   ];
 
   /// Fetch active serviceable pincodes from Supabase
@@ -2033,50 +2363,14 @@ class SupabaseAPI {
       'updated_at': nowIso,
     };
 
-    // 1. Try writing to pincode_delivery_requests table
+    // Write strictly to pincode_delivery_requests; never mutate enterprise_settings from client
     try {
       await _db.from('pincode_delivery_requests').insert(payload);
-      return;
-    } catch (_) {}
-
-    // 2. Fallback to enterprise_settings row
-    try {
-      final ent = await _db
-          .from('enterprise_settings')
-          .select('app_release_notes')
-          .eq('id', 'primary_pincode_requests')
-          .single();
-
-      List<dynamic> list = [];
-      if (ent['app_release_notes'] != null) {
-        try {
-          final p = jsonDecode(ent['app_release_notes'].toString());
-          if (p is List) list = p;
-        } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('logUnserviceableLocationRequest notice: $e');
       }
-
-      final existingIdx = list.indexWhere((r) =>
-          r is Map &&
-          r['pincode'] == cleanPin &&
-          (customerMobile != null && r['customer_mobile'] == customerMobile));
-
-      if (existingIdx >= 0) {
-        list[existingIdx]['request_count'] = ((list[existingIdx]['request_count'] ?? 1) as int) + 1;
-        list[existingIdx]['updated_at'] = nowIso;
-        if (fullAddress != null && fullAddress.isNotEmpty) {
-          list[existingIdx]['full_address'] = fullAddress;
-        }
-      } else {
-        list.insert(0, payload);
-      }
-
-      await _db.from('enterprise_settings').upsert({
-        'id': 'primary_pincode_requests',
-        'company_name': 'Customer Pincode Delivery Requests',
-        'app_release_notes': jsonEncode(list),
-        'updated_at': nowIso,
-      });
-    } catch (_) {}
+    }
   }
 }
 

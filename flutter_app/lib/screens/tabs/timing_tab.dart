@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -133,9 +134,9 @@ class _TimingTabState extends State<TimingTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Update Delivery Schedule',
-                        style: TextStyle(
+                      Text(
+                        'tim_update_title'.tr,
+                        style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A)),
@@ -150,18 +151,18 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 10),
 
                   // 1. Delivery Slot
-                  const Text('Delivery Slot',
-                      style: TextStyle(
+                  Text('dash_delivery_slot'.tr,
+                      style: const TextStyle(
                           fontWeight: FontWeight.w600, fontSize: 14)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
                         child: ChoiceChip(
-                          label: const Center(
-                              child: Text('🌅 Morning',
+                          label: Center(
+                              child: Text('slot_morning_emoji'.tr,
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Morning',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -183,10 +184,10 @@ class _TimingTabState extends State<TimingTab> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: ChoiceChip(
-                          label: const Center(
-                              child: Text('🌇 Evening',
+                          label: Center(
+                              child: Text('slot_evening_emoji'.tr,
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Evening',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -208,10 +209,10 @@ class _TimingTabState extends State<TimingTab> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: ChoiceChip(
-                          label: const Center(
-                              child: Text('🔄 Both',
+                          label: Center(
+                              child: Text('tim_slot_both_chip'.tr,
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                           selected: selectedSlot == 'Both',
                           selectedColor: _green.withValues(alpha: 0.2),
                           checkmarkColor: _green,
@@ -235,8 +236,8 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 18),
 
                   // 2. Daily Quantity
-                  const Text('Daily Milk Quantity',
-                      style: TextStyle(
+                  Text('tim_daily_milk_qty'.tr,
+                      style: const TextStyle(
                           fontWeight: FontWeight.w600, fontSize: 14)),
                   const SizedBox(height: 8),
                   Row(
@@ -254,7 +255,8 @@ class _TimingTabState extends State<TimingTab> {
                       Expanded(
                         child: Center(
                           child: Text(
-                            '${selectedQty.toStringAsFixed(1)} Liters',
+                            tr('tim_liters_val',
+                                {'qty': selectedQty.toStringAsFixed(1)}),
                             style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -299,8 +301,8 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 18),
 
                   // 3. Delivery Days
-                  const Text('Subscription Days Plan',
-                      style: TextStyle(
+                  Text('tim_sub_days_plan'.tr,
+                      style: const TextStyle(
                           fontWeight: FontWeight.w600, fontSize: 14)),
                   const SizedBox(height: 8),
                   Wrap(
@@ -315,7 +317,7 @@ class _TimingTabState extends State<TimingTab> {
                     ].map((daysOption) {
                       final isSel = activePlanOption == daysOption;
                       return ChoiceChip(
-                        label: Text(daysOption),
+                        label: Text(LanguageService.planLabel(daysOption)),
                         selected: isSel,
                         selectedColor: _green.withValues(alpha: 0.2),
                         checkmarkColor: _green,
@@ -336,8 +338,8 @@ class _TimingTabState extends State<TimingTab> {
                   // Custom Days Selector Wrap
                   if (activePlanOption == 'Custom Days') ...[
                     const SizedBox(height: 12),
-                    const Text('Select Delivery Days:',
-                        style: TextStyle(
+                    Text('tim_select_delivery_days'.tr,
+                        style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
                             color: Color(0xFF334155))),
@@ -349,7 +351,7 @@ class _TimingTabState extends State<TimingTab> {
                           .map((day) {
                         final isSelected = selectedCustomDays.contains(day);
                         return FilterChip(
-                          label: Text(day),
+                          label: Text(LanguageService.dayShortLabel(day)),
                           selected: isSelected,
                           selectedColor: _green,
                           checkmarkColor: Colors.white,
@@ -443,14 +445,13 @@ class _TimingTabState extends State<TimingTab> {
                                 if (context.mounted) {
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
+                                    SnackBar(
                                       content: Row(
                                         children: [
-                                          Icon(Icons.check_circle,
+                                          const Icon(Icons.check_circle,
                                               color: Colors.white),
-                                          SizedBox(width: 8),
-                                          Text(
-                                              'Delivery schedule updated successfully!'),
+                                          const SizedBox(width: 8),
+                                          Text('tim_updated_ok'.tr),
                                         ],
                                       ),
                                       backgroundColor: _green,
@@ -463,7 +464,8 @@ class _TimingTabState extends State<TimingTab> {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('Failed to update: $e'),
+                                      content: Text(tr(
+                                          'tim_update_err', {'err': '$e'})),
                                       backgroundColor: Colors.red,
                                     ),
                                   );
@@ -477,9 +479,9 @@ class _TimingTabState extends State<TimingTab> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text(
-                              'Save Schedule Changes',
-                              style: TextStyle(
+                          : Text(
+                              'tim_save_changes_btn'.tr,
+                              style: const TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                     ),
@@ -517,9 +519,9 @@ class _TimingTabState extends State<TimingTab> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Delivery Notice',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
+              Text(
+                'delivery_notice'.tr,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 12),
               Container(
@@ -532,14 +534,14 @@ class _TimingTabState extends State<TimingTab> {
                 child: Column(
                   children: [
                     Text(
-                      'Pincode: $pincode',
+                      '${'pincode'.tr}: $pincode',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0284C7)),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                    Text(
+                      'unserviceable_notice'.tr,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1E293B),
@@ -550,10 +552,10 @@ class _TimingTabState extends State<TimingTab> {
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'We have logged your location in our operations panel and will notify you as soon as morning & evening delivery commences here!',
+              Text(
+                'unserviceable_info'.tr,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -566,7 +568,7 @@ class _TimingTabState extends State<TimingTab> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text('understood_thanks'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -693,16 +695,16 @@ class _TimingTabState extends State<TimingTab> {
                             child: const Text('🥛', style: TextStyle(fontSize: 22)),
                           ),
                           const SizedBox(width: 12),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Order Additional Milk',
-                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                'dash_order_extra_title'.tr,
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                               Text(
-                                'One-time extra delivery order',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                                'extra_onetime_sub'.tr,
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
                               ),
                             ],
                           ),
@@ -725,14 +727,14 @@ class _TimingTabState extends State<TimingTab> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFA7F3D0)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: _green, size: 20),
-                        SizedBox(width: 10),
+                        const Icon(Icons.info_outline, color: _green, size: 20),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'This extra order will be saved to your scheduled orders for this specific date and will not alter your regular daily subscription.',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
+                            'extra_info_notice'.tr,
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
                           ),
                         ),
                       ],
@@ -741,8 +743,8 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 16),
 
                   // 1. SELECT DELIVERY DATE
-                  const Text('1. Select Delivery Date',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step1_date'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -750,7 +752,7 @@ class _TimingTabState extends State<TimingTab> {
                     children: [
                       if (isTodayAvailable)
                         ChoiceChip(
-                          label: Text('Today (${now.day}/${now.month})'),
+                          label: Text(tr('extra_today_date', {'date': '${now.day}/${now.month}'})),
                           selected: isToday,
                           selectedColor: _green.withValues(alpha: 0.18),
                           labelStyle: TextStyle(
@@ -770,7 +772,7 @@ class _TimingTabState extends State<TimingTab> {
                           },
                         ),
                       ChoiceChip(
-                        label: Text('Tomorrow (${tomorrow.day}/${tomorrow.month})'),
+                        label: Text(tr('dash_tomorrow_date', {'date': '${tomorrow.day}/${tomorrow.month}'})),
                         selected: isTomorrow,
                         selectedColor: _green.withValues(alpha: 0.18),
                         labelStyle: TextStyle(
@@ -783,7 +785,7 @@ class _TimingTabState extends State<TimingTab> {
                         },
                       ),
                       ChoiceChip(
-                        label: Text('Day After (${dayAfter.day}/${dayAfter.month})'),
+                        label: Text(tr('extra_day_after_date', {'date': '${dayAfter.day}/${dayAfter.month}'})),
                         selected: isDayAfter,
                         selectedColor: _green.withValues(alpha: 0.18),
                         labelStyle: TextStyle(
@@ -800,7 +802,7 @@ class _TimingTabState extends State<TimingTab> {
                         label: Text(
                           !isToday && !isTomorrow && !isDayAfter
                               ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}'
-                              : 'Pick Date 📅',
+                              : 'extra_pick_date'.tr,
                           style: TextStyle(
                             color: !isToday && !isTomorrow && !isDayAfter ? _green : Colors.black87,
                             fontWeight: !isToday && !isTomorrow && !isDayAfter ? FontWeight.bold : FontWeight.normal,
@@ -830,8 +832,8 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 16),
 
                   // 2. SELECT DELIVERY SLOT
-                  const Text('2. Select Delivery Slot',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step2_slot'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -839,7 +841,7 @@ class _TimingTabState extends State<TimingTab> {
                         Expanded(
                           child: ChoiceChip(
                             label: Center(
-                              child: Text('🌅 Morning\n$morningStart - $morningEnd',
+                              child: Text('${'slot_morning_emoji'.tr}\n$morningStart - $morningEnd',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
@@ -860,7 +862,7 @@ class _TimingTabState extends State<TimingTab> {
                         Expanded(
                           child: ChoiceChip(
                             label: Center(
-                              child: Text('🌇 Evening\n$eveningStart - $eveningEnd',
+                              child: Text('${'slot_evening_emoji'.tr}\n$eveningStart - $eveningEnd',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
@@ -884,9 +886,9 @@ class _TimingTabState extends State<TimingTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('3. Extra Quantity',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
-                      Text('Rate: ₹${rate.toInt()}/L',
+                      Text('extra_step3_qty'.tr,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                      Text(tr('extra_rate_val', {'rate': '${rate.toInt()}'}),
                           style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
                     ],
                   ),
@@ -902,8 +904,8 @@ class _TimingTabState extends State<TimingTab> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Quantity to Add:',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
+                        Text('extra_qty_to_add'.tr,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
                         Row(
                           children: [
                             IconButton(
@@ -962,13 +964,13 @@ class _TimingTabState extends State<TimingTab> {
                   const SizedBox(height: 16),
 
                   // 4. OPTIONAL INSTRUCTIONS
-                  const Text('4. Special Instructions (Optional)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step4_notes'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 6),
                   TextField(
                     controller: notesController,
                     decoration: InputDecoration(
-                      hintText: 'e.g. Leave in cold box / ring doorbell',
+                      hintText: 'extra_notes_hint'.tr,
                       hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -998,7 +1000,7 @@ class _TimingTabState extends State<TimingTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Delivery Date:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_date'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
                               '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
@@ -1009,9 +1011,9 @@ class _TimingTabState extends State<TimingTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Selected Slot:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_slot'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
-                              selectedSlot,
+                              LanguageService.slotLabel(selectedSlot),
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
                             ),
                           ],
@@ -1020,7 +1022,7 @@ class _TimingTabState extends State<TimingTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Additional Milk Quantity:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_qty'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
                               '${selectedQty.toStringAsFixed(1)} L (${widget.customer['milk_type'] ?? 'Raw Cow Milk'})',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
@@ -1031,8 +1033,8 @@ class _TimingTabState extends State<TimingTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Total Order Amount:',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
+                            Text('extra_summary_total'.tr,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
                             Text(
                               '₹${totalAmount.toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2)}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: _green),
@@ -1083,7 +1085,11 @@ class _TimingTabState extends State<TimingTab> {
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: Text(
-                                            '🎉 Additional Order for ${selectedQty.toStringAsFixed(1)} L on ${selectedDate.day}/${selectedDate.month}/${selectedDate.year} placed successfully!',
+                                            tr('extra_placed_ok', {
+                                              'qty': selectedQty.toStringAsFixed(1),
+                                              'date':
+                                                  '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}'
+                                            }),
                                             style: const TextStyle(fontWeight: FontWeight.bold),
                                           ),
                                         ),
@@ -1099,7 +1105,8 @@ class _TimingTabState extends State<TimingTab> {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Failed to place additional order: $e'),
+                                    content: Text(
+                                        tr('extra_place_err', {'err': '$e'})),
                                     backgroundColor: Colors.red,
                                     behavior: SnackBarBehavior.floating,
                                   ),
@@ -1116,7 +1123,10 @@ class _TimingTabState extends State<TimingTab> {
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                           )
                         : Text(
-                            'Confirm & Place Additional Order • ₹${totalAmount.toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2)}',
+                            tr('extra_confirm_amt_btn', {
+                              'amt': totalAmount
+                                  .toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2)
+                            }),
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                           ),
                   ),
@@ -1147,7 +1157,8 @@ class _TimingTabState extends State<TimingTab> {
 
     final String displaySlot = _formatSlotOnly(slot.toString());
     final nextDate = DateTime.now().add(const Duration(days: 1));
-    final nextDateStr = 'Tomorrow (${nextDate.day}/${nextDate.month}/${nextDate.year})';
+    final nextDateStr = tr('dash_tomorrow_date',
+        {'date': '${nextDate.day}/${nextDate.month}/${nextDate.year}'});
 
     bool isDayScheduled(String day, String plan) {
       final cleanPlan = plan.trim();
@@ -1194,8 +1205,8 @@ class _TimingTabState extends State<TimingTab> {
                   children: [
                     Row(
                       children: [
-                        const Text('Delivery Schedule',
-                            style: TextStyle(
+                        Text('delivery_schedule'.tr,
+                            style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold)),
                         if (_loading) ...[
                           const SizedBox(width: 8),
@@ -1219,8 +1230,8 @@ class _TimingTabState extends State<TimingTab> {
                             borderRadius: BorderRadius.circular(8)),
                       ),
                       icon: const Icon(Icons.edit_outlined, size: 14),
-                      label: const Text('Update',
-                          style: TextStyle(
+                      label: Text('tim_update_btn'.tr,
+                          style: const TextStyle(
                               fontSize: 12, fontWeight: FontWeight.bold)),
                       onPressed: () => _openUpdateBottomSheet(
                           displaySlot, dailyQty, deliveryDays),
@@ -1228,16 +1239,27 @@ class _TimingTabState extends State<TimingTab> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                _infoRow(Icons.schedule, 'Assigned Delivery Slot', displaySlot),
-                _infoRow(Icons.event, 'Next Delivery Date', nextDateStr),
-                _infoRow(Icons.calendar_today, 'Subscription Plan', deliveryDays),
-                _infoRow(Icons.local_drink_outlined, 'Daily Quantity', '$dailyQty Liters'),
-                _infoRow(Icons.location_on_outlined, 'Delivery Area',
+                _infoRow(Icons.schedule, 'tim_assigned_slot'.tr,
+                    LanguageService.slotLabel(displaySlot)),
+                _infoRow(Icons.event, 'tim_next_date'.tr, nextDateStr),
+                _infoRow(Icons.calendar_today, 'tim_sub_plan'.tr,
+                    LanguageService.planLabel(deliveryDays)),
+                _infoRow(Icons.local_drink_outlined, 'tim_daily_qty'.tr,
+                    tr('tim_liters_val', {'qty': '$dailyQty'})),
+                _infoRow(Icons.location_on_outlined, 'tim_delivery_area'.tr,
                     widget.customer['area'] ?? widget.customer['location'] ?? 'Anna Nagar'),
-                _infoRow(Icons.info_outline, 'Cutoff to Cancel',
+                _infoRow(
+                    Icons.info_outline,
+                    'tim_cutoff_cancel'.tr,
                     displaySlot.toLowerCase().contains('evening')
-                        ? 'Before ${_orderTimings?['evening_pause_cutoff'] ?? '2:00 PM'} (same day)'
-                        : 'Before ${_orderTimings?['morning_pause_cutoff'] ?? '8:00 PM'} (previous night)'),
+                        ? tr('tim_before_same_day', {
+                            'time': _orderTimings?['evening_pause_cutoff'] ??
+                                '2:00 PM'
+                          })
+                        : tr('tim_before_prev_night', {
+                            'time': _orderTimings?['morning_pause_cutoff'] ??
+                                '8:00 PM'
+                          })),
               ],
             ),
           ),
@@ -1285,9 +1307,9 @@ class _TimingTabState extends State<TimingTab> {
                         children: [
                           Row(
                             children: [
-                              const Text(
-                                'Order Additional Milk',
-                                style: TextStyle(
+                              Text(
+                                'dash_order_extra_title'.tr,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
@@ -1300,9 +1322,9 @@ class _TimingTabState extends State<TimingTab> {
                                   color: Colors.amber.shade300,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Text(
-                                  'EXTRA',
-                                  style: TextStyle(
+                                child: Text(
+                                  'dash_extra_badge'.tr,
+                                  style: const TextStyle(
                                     color: Color(0xFF78350F),
                                     fontSize: 9,
                                     fontWeight: FontWeight.w900,
@@ -1312,9 +1334,9 @@ class _TimingTabState extends State<TimingTab> {
                             ],
                           ),
                           const SizedBox(height: 2),
-                          const Text(
-                            'Need more milk on a specific day? Tap to schedule extra milk',
-                            style: TextStyle(color: Colors.white70, fontSize: 11),
+                          Text(
+                            'tim_extra_card_sub'.tr,
+                            style: const TextStyle(color: Colors.white70, fontSize: 11),
                           ),
                         ],
                       ),
@@ -1339,19 +1361,19 @@ class _TimingTabState extends State<TimingTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Weekly Schedule',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('tim_weekly_schedule'.tr,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                const Text('Upcoming 7 days delivery plan synced with Supabase',
-                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                Text('tim_weekly_sub'.tr,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(height: 12),
                 if (schedule.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     child: Center(
                       child: Text(
-                        'No active delivery days selected for this week.',
-                        style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+                        'tim_no_active_days_week'.tr,
+                        style: const TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
                       ),
                     ),
                   )
@@ -1376,12 +1398,13 @@ class _TimingTabState extends State<TimingTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Delivery Notification',
-                        style: TextStyle(
+                    Text('tim_delivery_notif_title'.tr,
+                        style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFD97706))),
                     Text(
-                        'You will receive a notification 10 minutes before delivery at $displaySlot.',
+                        tr('tim_delivery_notif_body',
+                            {'slot': LanguageService.slotLabel(displaySlot)}),
                         style: const TextStyle(
                             fontSize: 12, color: Color(0xFF92400E))),
                   ],
@@ -1432,12 +1455,12 @@ class _TimingTabState extends State<TimingTab> {
             decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
         const SizedBox(width: 10),
         Expanded(
-            child: Text(s['day']!,
+            child: Text(LanguageService.dayFullLabel(s['day']!),
                 style: TextStyle(
                     fontWeight: isScheduled ? FontWeight.w600 : FontWeight.normal,
                     fontSize: 13,
                     color: isScheduled ? const Color(0xFF0F172A) : Colors.grey.shade500))),
-        Text(s['time']!,
+        Text(LanguageService.slotLabel(s['time']!),
             style: TextStyle(color: timeColor, fontSize: 12)),
         const SizedBox(width: 12),
         Text(s['qty']!,

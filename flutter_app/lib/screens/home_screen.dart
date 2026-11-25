@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/language_service.dart';
+import '../widgets/app_logo.dart';
 import 'tabs/dashboard_tab.dart';
 import 'tabs/timing_tab.dart';
 import 'tabs/cancel_tab.dart';
@@ -32,68 +34,106 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = [
-      DashboardTab(
-        customer: _customer,
-        onNavigateToTab: (index) => setState(() => _idx = index),
-        onUpdated: _onCustomerUpdated,
-      ),
-      TimingTab(customer: _customer, onUpdated: _onCustomerUpdated),
-      CancelTab(customer: _customer),
-      DepositTab(customer: _customer),
-      PaymentTab(customer: _customer, onPaymentDone: () => setState(() => _customer['is_paid'] = true)),
-      ReportTab(customer: _customer),
-      ProfileTab(
-        customer: _customer,
-        onUpdated: _onCustomerUpdated,
-        onNavigateToTab: (index) => setState(() => _idx = index),
-      ),
-    ];
-
-    const navItems = [
-      BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-      BottomNavigationBarItem(icon: Icon(Icons.schedule_outlined), activeIcon: Icon(Icons.schedule), label: 'Timing'),
-      BottomNavigationBarItem(icon: Icon(Icons.do_not_disturb_alt_outlined), activeIcon: Icon(Icons.do_not_disturb_alt), label: 'Cancel'),
-      BottomNavigationBarItem(icon: Icon(Icons.inventory_2_outlined), activeIcon: Icon(Icons.inventory_2), label: 'Assets'),
-      BottomNavigationBarItem(icon: Icon(Icons.payment_outlined), activeIcon: Icon(Icons.payment), label: 'Payment'),
-      BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart), label: 'Reports'),
-      BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 12,
-        title: Row(children: [
-          Container(
-            width: 38, height: 38,
-            decoration: BoxDecoration(color: kGreen, borderRadius: BorderRadius.circular(10)),
-            child: const Center(child: Text('🥛', style: TextStyle(fontSize: 20))),
+    return ValueListenableBuilder<String>(
+      valueListenable: LanguageService.languageNotifier,
+      builder: (context, lang, child) {
+        final tabs = [
+          DashboardTab(
+            customer: _customer,
+            onNavigateToTab: (index) => setState(() => _idx = index),
+            onUpdated: _onCustomerUpdated,
           ),
-          const SizedBox(width: 10),
-          Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Amudham Raw Milk',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  overflow: TextOverflow.ellipsis),
-              Text('${_customer['name'] ?? 'Valued Customer'} • ${_customer['customer_id'] ?? _customer['id'] ?? ''}',
-                  style: const TextStyle(fontSize: 11, color: kGreen, fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis),
-            ],
-          )),
-        ]),
-      ),
-      body: IndexedStack(index: _idx, children: tabs),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _idx,
-        onTap: (i) => setState(() => _idx = i),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: kGreen,
-        unselectedItemColor: Colors.grey,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
-        unselectedLabelStyle: const TextStyle(fontSize: 10),
-        items: navItems,
-      ),
+          TimingTab(customer: _customer, onUpdated: _onCustomerUpdated),
+          CancelTab(customer: _customer),
+          DepositTab(customer: _customer),
+          PaymentTab(customer: _customer, onPaymentDone: () => setState(() => _customer['is_paid'] = true)),
+          ReportTab(customer: _customer),
+          ProfileTab(
+            customer: _customer,
+            onUpdated: _onCustomerUpdated,
+            onNavigateToTab: (index) => setState(() => _idx = index),
+          ),
+        ];
+
+        final navItems = [
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.home_outlined),
+            activeIcon: const Icon(Icons.home),
+            label: 'nav_home'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.schedule_outlined),
+            activeIcon: const Icon(Icons.schedule),
+            label: 'nav_timing'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.do_not_disturb_alt_outlined),
+            activeIcon: const Icon(Icons.do_not_disturb_alt),
+            label: 'nav_cancel'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.inventory_2_outlined),
+            activeIcon: const Icon(Icons.inventory_2),
+            label: 'nav_assets'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.payment_outlined),
+            activeIcon: const Icon(Icons.payment),
+            label: 'nav_payment'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.bar_chart_outlined),
+            activeIcon: const Icon(Icons.bar_chart),
+            label: 'nav_reports'.tr,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.person_outline),
+            activeIcon: const Icon(Icons.person),
+            label: 'nav_profile'.tr,
+          ),
+        ];
+
+        return Scaffold(
+          appBar: AppBar(
+            titleSpacing: 12,
+            title: Row(children: [
+              const AppLogo(
+                size: 40,
+                compact: true,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'app_title'.tr,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '${_customer['name'] ?? 'valued_customer'.tr} • ${_customer['customer_id'] ?? _customer['id'] ?? ''}',
+                      style: const TextStyle(fontSize: 11, color: kGreen, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+          body: IndexedStack(index: _idx, children: tabs),
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: _idx,
+            onTap: (i) => setState(() => _idx = i),
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: kGreen,
+            unselectedItemColor: Colors.grey,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
+            unselectedLabelStyle: const TextStyle(fontSize: 10),
+            items: navItems,
+          ),
+        );
+      },
     );
   }
 }

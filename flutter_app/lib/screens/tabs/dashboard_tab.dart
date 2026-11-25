@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api.dart';
 import '../../services/session_service.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -33,16 +35,33 @@ class _DashboardTabState extends State<DashboardTab> {
   double _pendingAmount = 0.0;
   double _ratePerLiter = 65.0;
   int _deliveryStep = 0; // -1=Cancelled, 0=Preparing, 1=PickedUp/OutForDelivery, 2=NearYou, 3=Delivered
-  String _deliveryStatusLabel = 'Scheduled';
+  String _deliveryStatusKey = 'scheduled';
   String _deliveryNotes = '';
   String _todayDeliveredTime = '';
   bool _loading = true;
+  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _customer = Map<String, dynamic>.from(widget.customer);
     _loadServerData();
+    _startAutoRefresh();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && _deliveryStep < 3 && _deliveryStep != -1) {
+        _loadServerData();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -54,8 +73,8 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   Future<void> _loadServerData() async {
-    final p = await SupabaseAPI.fetchDeliveryPartnerForCustomer(_customer);
     final del = await SupabaseAPI.fetchTodayDelivery(_customer);
+    final p = await SupabaseAPI.fetchDeliveryPartnerForCustomer(_customer, del);
     final freshCust = await SupabaseAPI.fetchCustomerDetails(_customer);
     final pending = await SupabaseAPI.fetchActivePendingPayment(_customer);
     final pricing = await SupabaseAPI.fetchPricingConfig();
@@ -143,23 +162,23 @@ class _DashboardTabState extends State<DashboardTab> {
 
           if (status == 'CANCELLED') {
             _deliveryStep = -1;
-            _deliveryStatusLabel = 'Paused Today';
+            _deliveryStatusKey = 'paused_today';
           } else if (status == 'DELIVERED') {
             _deliveryStep = 3;
-            _deliveryStatusLabel = 'Delivered';
-          } else if (status == 'NEAR_CUSTOMER') {
+            _deliveryStatusKey = 'delivered';
+          } else if (status == 'NEAR_CUSTOMER' || status == 'NEAR_YOU' || status == 'NEAR YOU' || status == 'NEAR' || status == 'ARRIVING_SOON') {
             _deliveryStep = 2;
-            _deliveryStatusLabel = 'Near You';
+            _deliveryStatusKey = 'near_you';
           } else if (status == 'OUT_FOR_DELIVERY' || status == 'ASSIGNED' || status == 'IN_TRANSIT') {
             _deliveryStep = 1;
-            _deliveryStatusLabel = 'Out for Delivery';
+            _deliveryStatusKey = 'out_for_delivery';
           } else {
             _deliveryStep = 0;
-            _deliveryStatusLabel = 'Preparing';
+            _deliveryStatusKey = 'preparing';
           }
         } else {
           _deliveryStep = 0;
-          _deliveryStatusLabel = 'Preparing';
+          _deliveryStatusKey = 'preparing';
           final rawTiming = (_customer['delivery_timing'] ?? '').toString();
           final timeMatch = RegExp(r'(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)', caseSensitive: false)
               .firstMatch(rawTiming);
@@ -187,7 +206,7 @@ class _DashboardTabState extends State<DashboardTab> {
   Future<void> _openWhatsApp(String phone) async {
     final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
     final number = clean.length == 10 ? '91$clean' : clean;
-    final uri = Uri.parse('https://wa.me/$number?text=Hello%20Amudham%20Support');
+    final uri = Uri.parse('https://wa.me/$number?text=Hello%20Sri%20Aashikaa%20Support');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -222,13 +241,13 @@ class _DashboardTabState extends State<DashboardTab> {
     String rateSubtitle;
     if (cycleLower == 'daily') {
       calculatedRate = (qty * _ratePerLiter).round();
-      rateSubtitle = 'Per Day (₹${_ratePerLiter.toInt()}/L)';
+      rateSubtitle = tr('dash_per_day_rate', {'rate': '${_ratePerLiter.toInt()}'});
     } else if (cycleLower == 'monthly') {
       calculatedRate = (qty * 30 * _ratePerLiter).round();
-      rateSubtitle = 'Per Month (30 Days @ ₹${_ratePerLiter.toInt()}/L)';
+      rateSubtitle = tr('dash_per_month_rate', {'rate': '${_ratePerLiter.toInt()}'});
     } else {
       calculatedRate = (qty * 7 * _ratePerLiter).round();
-      rateSubtitle = 'Per Week (7 Days @ ₹${_ratePerLiter.toInt()}/L)';
+      rateSubtitle = tr('dash_per_week_rate', {'rate': '${_ratePerLiter.toInt()}'});
     }
 
     final now = DateTime.now();
@@ -240,7 +259,7 @@ class _DashboardTabState extends State<DashboardTab> {
     if (cycleLower == 'daily') {
       cycleStartDate = today;
       nextDueDate = today;
-      dueDayLabel = 'Daily';
+      dueDayLabel = 'dash_daily_label'.tr;
     } else if (cycleLower == 'monthly') {
       cycleStartDate = DateTime(now.year, now.month, 1);
       if (today.day == 1) {
@@ -250,7 +269,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ? DateTime(now.year + 1, 1, 1)
             : DateTime(now.year, now.month + 1, 1);
       }
-      dueDayLabel = '1st of Month';
+      dueDayLabel = 'dash_first_of_month'.tr;
     } else {
       // Weekly: closes on Saturday
       final daysSinceSunday = today.weekday % 7;
@@ -263,7 +282,7 @@ class _DashboardTabState extends State<DashboardTab> {
       } else {
         nextDueDate = today.add(Duration(days: diffToSaturday));
       }
-      dueDayLabel = 'Saturday';
+      dueDayLabel = 'day_sat'.tr;
     }
 
     final int daysUntilDue = nextDueDate.difference(today).inDays;
@@ -419,7 +438,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Welcome, ${c['name'] ?? 'Valued Customer'} 👋',
+                          tr('dash_welcome', {'name': '${c['name'] ?? 'valued_customer'.tr}'}),
                           style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -430,7 +449,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           color: Colors.white.withValues(alpha: 0.25),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Text('Live Sync', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        child: Text('dash_live_sync'.tr, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
@@ -450,7 +469,7 @@ class _DashboardTabState extends State<DashboardTab> {
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               Row(
                 children: [
-                  const Text("Today's Delivery", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('today_delivery'.tr, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   if (_loading) ...[
                     const SizedBox(width: 8),
                     const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _green)),
@@ -458,7 +477,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 ],
               ),
               _statusBadge(
-                _deliveryStatusLabel,
+                _deliveryStatusKey.tr,
                 _deliveryStep == -1
                     ? Colors.orange
                     : (_deliveryStep == 3 ? Colors.blue : _green),
@@ -466,9 +485,9 @@ class _DashboardTabState extends State<DashboardTab> {
             ]),
             const SizedBox(height: 14),
             Row(children: [
-              Expanded(child: _metricBox('Daily Quantity', '$qty L')),
+              Expanded(child: _metricBox('dash_daily_qty'.tr, '$qty L')),
               const SizedBox(width: 12),
-              Expanded(child: _metricBox('Delivery Slot', slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', ''))),
+              Expanded(child: _metricBox('dash_delivery_slot'.tr, LanguageService.slotLabel(slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', '')))),
             ]),
             if (_deliveryStep != -1 && _todayDeliveredTime.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -490,8 +509,8 @@ class _DashboardTabState extends State<DashboardTab> {
                     const SizedBox(width: 6),
                     Text(
                       _deliveryStep == 3
-                          ? 'Delivered Time: $_todayDeliveredTime'
-                          : 'Expected Time: $_todayDeliveredTime',
+                          ? tr('dash_delivered_time', {'time': _todayDeliveredTime})
+                          : tr('dash_expected_time', {'time': _todayDeliveredTime}),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -522,9 +541,9 @@ class _DashboardTabState extends State<DashboardTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Delivery Paused for Today',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E))),
-                          Text(_deliveryNotes.isNotEmpty ? _deliveryNotes : 'Deliveries resume on the next scheduled day.',
+                          Text('dash_paused_title'.tr,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E))),
+                          Text(_deliveryNotes.isNotEmpty ? _deliveryNotes : 'dash_paused_default'.tr,
                               style: const TextStyle(fontSize: 11, color: Color(0xFFB45309))),
                         ],
                       ),
@@ -533,18 +552,158 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
               ),
             ] else ...[
-              const Text('Live Delivery Progress (Supabase Synced)',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _green)),
+              Text('dash_live_progress'.tr,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _green)),
               const SizedBox(height: 12),
               Row(children: [
-                _trackerDot(0, 'Preparing'),
+                _trackerDot(0, 'preparing'.tr),
                 _trackerLine(0),
-                _trackerDot(1, 'Out for Delivery'),
+                _trackerDot(1, 'out_for_delivery'.tr),
                 _trackerLine(1),
-                _trackerDot(2, 'Near You'),
+                _trackerDot(2, 'near_you'.tr),
                 _trackerLine(2),
-                _trackerDot(3, 'Delivered'),
+                _trackerDot(3, 'delivered'.tr),
               ]),
+            ],
+
+            // ── Assigned Delivery Partner Card (Vehicle, Name, Call & WhatsApp) ───
+            if (_partner != null && _partner!.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFA7F3D0), width: 1.2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: _green,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.two_wheeler, color: Colors.white, size: 24),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      _partner!['name'] ?? 'delivery_partner'.tr,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Color(0xFF0F172A),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: _green.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      'dash_assigned_partner'.tr,
+                                      style: const TextStyle(
+                                        color: _green,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  const Icon(Icons.directions_car_filled_outlined, size: 13, color: Color(0xFF475569)),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      (_partner!['vehicle_number'] != null && _partner!['vehicle_number'].toString().trim().isNotEmpty)
+                                          ? tr('dash_vehicle', {'val': '${_partner!['vehicle_number']}'})
+                                          : tr('dash_vehicle', {'val': 'dash_delivery_bike'.tr}),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF334155),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.call, size: 16, color: _green),
+                            label: Text(
+                              'dash_call_partner'.tr,
+                              style: const TextStyle(color: _green, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              side: const BorderSide(color: _green, width: 1.2),
+                              padding: const EdgeInsets.symmetric(vertical: 9),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              final ph = (_partner!['mobile'] ?? _partner!['phone'] ?? '').toString();
+                              if (ph.isNotEmpty) {
+                                _makeCall(ph);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.chat, size: 16, color: Colors.white),
+                            label: Text(
+                              'whatsapp'.tr,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 9),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              final ph = (_partner!['mobile'] ?? _partner!['phone'] ?? '').toString();
+                              if (ph.isNotEmpty) {
+                                _openWhatsApp(ph);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ])),
           const SizedBox(height: 16),
@@ -570,15 +729,18 @@ class _DashboardTabState extends State<DashboardTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Next Scheduled Delivery',
-                            style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)),
+                        Text('dash_next_delivery'.tr,
+                            style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 3),
                         Text(
-                          'Tomorrow (${DateTime.now().add(const Duration(days: 1)).day}/${DateTime.now().add(const Duration(days: 1)).month}/${DateTime.now().year})',
+                          tr('dash_tomorrow_date', {'date': '${DateTime.now().add(const Duration(days: 1)).day}/${DateTime.now().add(const Duration(days: 1)).month}/${DateTime.now().year}'}),
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
                         ),
                         Text(
-                          'Scheduled: $qty L • ${slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', '')}',
+                          tr('dash_scheduled_summary', {
+                            'qty': '$qty',
+                            'slot': LanguageService.slotLabel(slot.replaceAll('🌅 ', '').replaceAll('🌇 ', '').replaceAll('☀️ ', '')),
+                          }),
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _green),
                         ),
                       ],
@@ -631,9 +793,9 @@ class _DashboardTabState extends State<DashboardTab> {
                           children: [
                             Row(
                               children: [
-                                const Text(
-                                  'Order Additional Milk',
-                                  style: TextStyle(
+                                Text(
+                                  'dash_order_extra_title'.tr,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
@@ -646,9 +808,9 @@ class _DashboardTabState extends State<DashboardTab> {
                                     color: Colors.amber.shade300,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: const Text(
-                                    'EXTRA',
-                                    style: TextStyle(
+                                  child: Text(
+                                    'dash_extra_badge'.tr,
+                                    style: const TextStyle(
                                       color: Color(0xFF78350F),
                                       fontSize: 9,
                                       fontWeight: FontWeight.w900,
@@ -658,9 +820,9 @@ class _DashboardTabState extends State<DashboardTab> {
                               ],
                             ),
                             const SizedBox(height: 3),
-                            const Text(
-                              'Need more milk? Select date & slot for extra delivery',
-                              style: TextStyle(
+                            Text(
+                              'dash_order_extra_sub'.tr,
+                              style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,
                               ),
@@ -699,13 +861,13 @@ class _DashboardTabState extends State<DashboardTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Row(
+                      Row(
                         children: [
-                          Icon(Icons.history, size: 18, color: _green),
-                          SizedBox(width: 6),
+                          const Icon(Icons.history, size: 18, color: _green),
+                          const SizedBox(width: 6),
                           Text(
-                            'Your Additional Milk Orders',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                            'dash_your_extra_orders'.tr,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
                           ),
                         ],
                       ),
@@ -716,7 +878,9 @@ class _DashboardTabState extends State<DashboardTab> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          '${_additionalOrders.length} Order${_additionalOrders.length > 1 ? "s" : ""}',
+                          _additionalOrders.length == 1
+                              ? 'dash_order_singular'.tr
+                              : tr('dash_orders_plural', {'count': '${_additionalOrders.length}'}),
                           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: _green),
                         ),
                       ),
@@ -769,7 +933,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      'Date: $date',
+                                      tr('dash_date_colon', {'date': date}),
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13,
@@ -791,11 +955,11 @@ class _DashboardTabState extends State<DashboardTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      '$q L • ${_formatSlotOnly(timing)}',
+                                      '$q L • ${LanguageService.slotLabel(_formatSlotOnly(timing))}',
                                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                                     ),
                                     Text(
-                                      status,
+                                      LanguageService.statusLabel(status),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.bold,
@@ -811,7 +975,7 @@ class _DashboardTabState extends State<DashboardTab> {
                             const SizedBox(width: 6),
                             IconButton(
                               icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.redAccent),
-                              tooltip: 'Cancel this extra order',
+                              tooltip: 'dash_cancel_extra_tooltip'.tr,
                               onPressed: () => _confirmCancelAdditionalOrder(ord),
                             ),
                           ],
@@ -825,82 +989,7 @@ class _DashboardTabState extends State<DashboardTab> {
             const SizedBox(height: 16),
           ],
 
-          // ── Delivery Partner Details (Only shown if assigned in delivery_assignments) ───
-          if (_partner != null && _partner!.isNotEmpty) ...[
-            _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Assigned Delivery Partner', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 14),
-              Row(children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: const Color(0xFFECFDF5),
-                  child: Text(
-                    ((_partner!['name'] ?? 'P').toString().trim().isNotEmpty
-                            ? (_partner!['name'] ?? 'P').toString().trim().characters.first
-                            : 'P')
-                        .toUpperCase(),
-                    style: const TextStyle(fontSize: 24, color: _green, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(_partner!['name'] ?? 'Delivery Partner',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  if ((_partner!['employee_id'] ?? _partner!['id']) != null)
-                    Text('Partner ID: ${_partner!['employee_id'] ?? _partner!['id']}',
-                        style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  if (_partner!['vehicle_number'] != null && _partner!['vehicle_number'].toString().trim().isNotEmpty)
-                    Text(_partner!['vehicle_number'].toString(),
-                        style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  if ((_partner!['mobile'] ?? _partner!['phone']) != null &&
-                      (_partner!['mobile'] ?? _partner!['phone']).toString().trim().isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Row(children: [
-                      const Icon(Icons.phone, size: 13, color: _green),
-                      const SizedBox(width: 4),
-                      Text((_partner!['mobile'] ?? _partner!['phone']).toString(),
-                          style: const TextStyle(color: _green, fontWeight: FontWeight.w600, fontSize: 13)),
-                    ]),
-                  ],
-                ])),
-              ]),
-              const SizedBox(height: 14),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.call, size: 16, color: _green),
-                    label: const Text('Call Partner', style: TextStyle(color: _green, fontWeight: FontWeight.bold, fontSize: 13)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: _green),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () {
-                      final ph = (_partner!['mobile'] ?? _partner!['phone'] ?? '').toString();
-                      if (ph.isNotEmpty) _makeCall(ph);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.chat, size: 16, color: Colors.white),
-                    label: const Text('WhatsApp', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () {
-                      final ph = (_partner!['mobile'] ?? _partner!['phone'] ?? '').toString();
-                      if (ph.isNotEmpty) _openWhatsApp(ph);
-                    },
-                  ),
-                ),
-              ]),
-            ])),
-            const SizedBox(height: 16),
-          ],
+
 
           // ── Payment Status & Rate Summary ─────────────────────────────────
           Row(children: [
@@ -911,7 +1000,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Payment Status', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Text('dash_payment_status'.tr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
@@ -927,10 +1016,10 @@ class _DashboardTabState extends State<DashboardTab> {
                           children: [
                             Text(
                               isPaid
-                                  ? 'Paid ✅'
+                                  ? 'dash_paid_tick'.tr
                                   : (isDueToday || isOverdue)
-                                      ? 'Pay Now'
-                                      : 'Active 📅',
+                                      ? 'pay_now'.tr
+                                      : 'dash_active_badge'.tr,
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -963,10 +1052,10 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 4),
                   Text(
                     isPaid
-                        ? 'PAID ✅'
+                        ? 'dash_paid_caps'.tr
                         : (isDueToday || isOverdue)
-                            ? 'DUE TODAY (₹${dueAmount.toInt()}) ⚠️'
-                            : 'NO DUES TODAY ✅',
+                            ? tr('dash_due_today_amt', {'amt': '${dueAmount.toInt()}'})
+                            : 'dash_no_dues_today'.tr,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
@@ -982,10 +1071,14 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 2),
                   Text(
                     isPaid
-                        ? 'Cycle: ${cycle.toUpperCase()}'
+                        ? tr('dash_cycle_prefix', {'cycle': LanguageService.periodLabel(cycle).toUpperCase()})
                         : (isDueToday || isOverdue)
-                            ? 'Due Today ($dueDayLabel)'
-                            : 'Due $dueDayLabel ($daysUntilDue ${daysUntilDue == 1 ? "day" : "days"} left)',
+                            ? tr('dash_due_today_label', {'day': dueDayLabel})
+                            : tr('dash_due_days_left', {
+                                'day': dueDayLabel,
+                                'count': '$daysUntilDue',
+                                'unit': daysUntilDue == 1 ? 'dash_day_singular'.tr : 'dash_day_plural'.tr,
+                              }),
                     style: TextStyle(
                       color: (isDueToday || isOverdue) ? Colors.orange.shade800 : Colors.grey.shade600,
                       fontSize: 10,
@@ -1005,7 +1098,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Rate Summary', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Text('dash_rate_summary'.tr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
                       const Icon(Icons.arrow_forward_ios, size: 10, color: Colors.grey),
                     ],
                   ),
@@ -1029,14 +1122,17 @@ class _DashboardTabState extends State<DashboardTab> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Additional Order?'),
+        title: Text('dash_cancel_extra_title'.tr),
         content: Text(
-          'Are you sure you want to cancel the additional milk order of ${ord['quantity']} L scheduled for ${ord['delivery_date'] ?? ord['order_date']}?',
+          tr('dash_cancel_extra_msg', {
+            'qty': '${ord['quantity']}',
+            'date': '${ord['delivery_date'] ?? ord['order_date']}',
+          }),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Keep Order'),
+            child: Text('dash_keep_order'.tr),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
@@ -1047,8 +1143,8 @@ class _DashboardTabState extends State<DashboardTab> {
                 await _loadServerData();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Additional milk order cancelled successfully.'),
+                    SnackBar(
+                      content: Text('dash_extra_cancelled_ok'.tr),
                       backgroundColor: Colors.orange,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -1057,12 +1153,12 @@ class _DashboardTabState extends State<DashboardTab> {
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to cancel order: $e'), backgroundColor: Colors.red),
+                    SnackBar(content: Text(tr('dash_cancel_extra_err', {'err': '$e'})), backgroundColor: Colors.red),
                   );
                 }
               }
             },
-            child: const Text('Yes, Cancel'),
+            child: Text('dash_yes_cancel'.tr),
           ),
         ],
       ),
@@ -1093,9 +1189,9 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Delivery Notice',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
+              Text(
+                'delivery_notice'.tr,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 12),
               Container(
@@ -1108,14 +1204,14 @@ class _DashboardTabState extends State<DashboardTab> {
                 child: Column(
                   children: [
                     Text(
-                      'Pincode: $pincode',
+                      '${'pincode'.tr}: $pincode',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0284C7)),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '“We are not available at your location yet, but we will quickly reach to your location”',
+                    Text(
+                      'unserviceable_notice'.tr,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1E293B),
@@ -1126,10 +1222,10 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'We have logged your location in our operations panel and will notify you as soon as morning & evening delivery commences here!',
+              Text(
+                'unserviceable_info'.tr,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4),
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -1142,7 +1238,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Understood, Thank You!', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text('understood_thanks'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -1265,16 +1361,16 @@ class _DashboardTabState extends State<DashboardTab> {
                             child: const Text('🥛', style: TextStyle(fontSize: 22)),
                           ),
                           const SizedBox(width: 12),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Order Additional Milk',
-                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                'dash_order_extra_title'.tr,
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                               Text(
-                                'One-time extra delivery order',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                                'extra_onetime_sub'.tr,
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
                               ),
                             ],
                           ),
@@ -1297,14 +1393,14 @@ class _DashboardTabState extends State<DashboardTab> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFA7F3D0)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: _green, size: 20),
-                        SizedBox(width: 10),
+                        const Icon(Icons.info_outline, color: _green, size: 20),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'This extra order will be saved to your scheduled orders for this specific date and will not alter your regular daily subscription.',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
+                            'extra_info_notice'.tr,
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF065F46), height: 1.3),
                           ),
                         ),
                       ],
@@ -1313,8 +1409,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 16),
 
                   // 1. SELECT DELIVERY DATE
-                  const Text('1. Select Delivery Date',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step1_date'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -1322,7 +1418,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     children: [
                       if (isTodayAvailable)
                         ChoiceChip(
-                          label: Text('Today (${now.day}/${now.month})'),
+                          label: Text(tr('extra_today_date', {'date': '${now.day}/${now.month}'})),
                           selected: isToday,
                           selectedColor: _green.withValues(alpha: 0.18),
                           labelStyle: TextStyle(
@@ -1342,7 +1438,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           },
                         ),
                       ChoiceChip(
-                        label: Text('Tomorrow (${tomorrow.day}/${tomorrow.month})'),
+                        label: Text(tr('dash_tomorrow_date', {'date': '${tomorrow.day}/${tomorrow.month}'})),
                         selected: isTomorrow,
                         selectedColor: _green.withValues(alpha: 0.18),
                         labelStyle: TextStyle(
@@ -1355,7 +1451,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         },
                       ),
                       ChoiceChip(
-                        label: Text('Day After (${dayAfter.day}/${dayAfter.month})'),
+                        label: Text(tr('extra_day_after_date', {'date': '${dayAfter.day}/${dayAfter.month}'})),
                         selected: isDayAfter,
                         selectedColor: _green.withValues(alpha: 0.18),
                         labelStyle: TextStyle(
@@ -1372,7 +1468,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         label: Text(
                           !isToday && !isTomorrow && !isDayAfter
                               ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}'
-                              : 'Pick Date 📅',
+                              : 'extra_pick_date'.tr,
                           style: TextStyle(
                             color: !isToday && !isTomorrow && !isDayAfter ? _green : Colors.black87,
                             fontWeight: !isToday && !isTomorrow && !isDayAfter ? FontWeight.bold : FontWeight.normal,
@@ -1402,18 +1498,18 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 16),
 
                   // 2. SELECT DELIVERY SLOT
-                  const Text('2. Select Delivery Slot',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step2_slot'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       if (canSelectMorning)
                         Expanded(
                           child: ChoiceChip(
-                            label: const Center(
-                              child: Text('🌅 Morning',
+                            label: Center(
+                              child: Text('slot_morning_emoji'.tr,
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             ),
                             selected: selectedSlot.contains('Morning'),
                             selectedColor: _green.withValues(alpha: 0.18),
@@ -1431,10 +1527,10 @@ class _DashboardTabState extends State<DashboardTab> {
                       if (canSelectEvening)
                         Expanded(
                           child: ChoiceChip(
-                            label: const Center(
-                              child: Text('🌇 Evening',
+                            label: Center(
+                              child: Text('slot_evening_emoji'.tr,
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             ),
                             selected: selectedSlot.contains('Evening'),
                             selectedColor: _green.withValues(alpha: 0.18),
@@ -1456,9 +1552,9 @@ class _DashboardTabState extends State<DashboardTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('3. Extra Quantity',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
-                      Text('Rate: ₹${rate.toInt()}/L',
+                      Text('extra_step3_qty'.tr,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                      Text(tr('extra_rate_val', {'rate': '${rate.toInt()}'}),
                           style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
                     ],
                   ),
@@ -1474,8 +1570,8 @@ class _DashboardTabState extends State<DashboardTab> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Quantity to Add:',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
+                        Text('extra_qty_to_add'.tr,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
                         Row(
                           children: [
                             IconButton(
@@ -1534,13 +1630,13 @@ class _DashboardTabState extends State<DashboardTab> {
                   const SizedBox(height: 16),
 
                   // 4. OPTIONAL INSTRUCTIONS
-                  const Text('4. Special Instructions (Optional)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text('extra_step4_notes'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                   const SizedBox(height: 6),
                   TextField(
                     controller: notesController,
                     decoration: InputDecoration(
-                      hintText: 'e.g. Leave in cold box / ring doorbell',
+                      hintText: 'extra_notes_hint'.tr,
                       hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -1570,7 +1666,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Delivery Date:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_date'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
                               '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
@@ -1581,9 +1677,9 @@ class _DashboardTabState extends State<DashboardTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Selected Slot:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_slot'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
-                              selectedSlot,
+                              LanguageService.slotLabel(selectedSlot),
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
                             ),
                           ],
@@ -1592,7 +1688,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Additional Milk Quantity:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                            Text('extra_summary_qty'.tr, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                             Text(
                               '${selectedQty.toStringAsFixed(1)} L (${_customer['milk_type'] ?? 'Raw Cow Milk'})',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
@@ -1603,8 +1699,8 @@ class _DashboardTabState extends State<DashboardTab> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Total Order Amount:',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
+                            Text('extra_summary_total'.tr,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
                             Text(
                               '₹${totalAmount.toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2)}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: _green),
@@ -1655,7 +1751,10 @@ class _DashboardTabState extends State<DashboardTab> {
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: Text(
-                                            '🎉 Additional Order for ${selectedQty.toStringAsFixed(1)} L on ${selectedDate.day}/${selectedDate.month}/${selectedDate.year} placed successfully!',
+                                            tr('extra_placed_ok', {
+                                              'qty': selectedQty.toStringAsFixed(1),
+                                              'date': '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                                            }),
                                             style: const TextStyle(fontWeight: FontWeight.bold),
                                           ),
                                         ),
@@ -1671,7 +1770,7 @@ class _DashboardTabState extends State<DashboardTab> {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Failed to place additional order: $e'),
+                                    content: Text(tr('extra_place_err', {'err': '$e'})),
                                     backgroundColor: Colors.red,
                                     behavior: SnackBarBehavior.floating,
                                   ),
@@ -1688,7 +1787,9 @@ class _DashboardTabState extends State<DashboardTab> {
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                           )
                         : Text(
-                            'Confirm & Place Additional Order • ₹${totalAmount.toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2)}',
+                            tr('extra_confirm_amt_btn', {
+                              'amt': totalAmount.toStringAsFixed(totalAmount % 1 == 0 ? 0 : 2),
+                            }),
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                           ),
                   ),

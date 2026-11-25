@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/session_service.dart';
+import '../services/language_service.dart';
 import 'auth_screen.dart';
 
 class DeactivateAccountScreen extends StatefulWidget {
@@ -39,21 +40,21 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
-            SizedBox(width: 8),
-            Text('Confirm Deactivation', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+            const SizedBox(width: 8),
+            Text('confirm_deactivate_btn'.tr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
-        content: const Text(
-          'Are you sure you want to permanently deactivate your account? All daily milk subscriptions will be cancelled immediately and your login access will be revoked.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+        content: Text(
+          'deactivate_warning_desc'.tr,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text('cancel'.tr, style: const TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -62,7 +63,7 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Yes, Deactivate', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text('confirm_deactivate_btn'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -77,9 +78,9 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Your account has been deactivated successfully.'),
-          backgroundColor: Color(0xFFDC2626),
+        SnackBar(
+          content: Text('deact_success_msg'.tr),
+          backgroundColor: const Color(0xFFDC2626),
         ),
       );
 
@@ -93,7 +94,7 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error deactivating account: $e'),
+          content: Text(tr('deact_error_msg', {'err': '$e'})),
           backgroundColor: Colors.red,
         ),
       );
@@ -107,7 +108,7 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Deactivate Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: Text('deactivate_account_title'.tr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0.5,
@@ -140,22 +141,22 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                       child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Account Deactivation & Removal',
-                            style: TextStyle(
+                            'deact_banner_title'.tr,
+                            style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF991B1B),
                             ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
-                            'Please review all terms, conditions, and consequences before confirming deactivation.',
-                            style: TextStyle(fontSize: 12, color: Color(0xFF7F1D1D), height: 1.3),
+                            'deact_banner_desc'.tr,
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D), height: 1.3),
                           ),
                         ],
                       ),
@@ -180,7 +181,7 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Outstanding Balance: ₹${pendingAmt.toStringAsFixed(2)}. Our support team will coordinate final bill settlement upon deactivation.',
+                          tr('deact_pending_dues', {'amt': pendingAmt.toStringAsFixed(2)}),
                           style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)),
                         ),
                       ),
@@ -202,9 +203,9 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Terms & Conditions of Deactivation',
-                        style: TextStyle(
+                      Text(
+                        'deact_terms_title'.tr,
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF0F172A),
@@ -213,37 +214,32 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                       const SizedBox(height: 12),
                       _termItem(
                         icon: Icons.cancel_schedule_send_rounded,
-                        title: '1. Immediate Delivery Cancellation',
-                        description:
-                            'All ongoing recurring milk deliveries (morning & evening schedules) will be cancelled immediately from tomorrow onwards.',
+                        title: 'deact_term1_title'.tr,
+                        description: 'deact_term1_desc'.tr,
                       ),
                       const Divider(height: 20),
                       _termItem(
                         icon: Icons.inventory_2_outlined,
-                        title: '2. Asset Collection & Bottle Deposits',
-                        description:
-                            'Any glass bottles or delivery crates in your possession must be returned to the delivery partner. Any refundable security deposits will be credited to your bank account after physical inspection.',
+                        title: 'deact_term2_title'.tr,
+                        description: 'deact_term2_desc'.tr,
                       ),
                       const Divider(height: 20),
                       _termItem(
                         icon: Icons.receipt_long_outlined,
-                        title: '3. Bill Settlement',
-                        description:
-                            'Any unpaid dues up to your last delivery date will remain payable. An itemized closing statement will be generated.',
+                        title: 'deact_term3_title'.tr,
+                        description: 'deact_term3_desc'.tr,
                       ),
                       const Divider(height: 20),
                       _termItem(
                         icon: Icons.no_accounts_rounded,
-                        title: '4. Login Access Revocation',
-                        description:
-                            'You will be immediately logged out of this device. Your account credentials will be blocked from logging into the Amudham Customer App.',
+                        title: 'deact_term4_title'.tr,
+                        description: 'deact_term4_desc'.tr,
                       ),
                       const Divider(height: 20),
                       _termItem(
                         icon: Icons.support_agent_rounded,
-                        title: '5. Reactivation Request',
-                        description:
-                            'If you wish to resume milk delivery services in the future, you must contact the Amudham Dairy customer helpline desk.',
+                        title: 'deact_term5_title'.tr,
+                        description: 'deact_term5_desc'.tr,
                       ),
                     ],
                   ),
@@ -276,12 +272,12 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                           onChanged: (v) => setState(() => _agreed = v ?? false),
                         ),
                         const SizedBox(width: 6),
-                        const Expanded(
+                        Expanded(
                           child: Padding(
-                            padding: EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.only(top: 10),
                             child: Text(
-                              'I have read, understood, and accept all the terms and conditions above. I confirm that I want to deactivate my account and permanently cancel all milk deliveries.',
-                              style: TextStyle(
+                              'deact_agree_checkbox'.tr,
+                              style: const TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF1E293B),
@@ -318,7 +314,7 @@ class _DeactivateAccountScreenState extends State<DeactivateAccountScreen> {
                         )
                       : const Icon(Icons.delete_forever_rounded, size: 20),
                   label: Text(
-                    _isLoading ? 'Processing Deactivation...' : 'Delete & Deactivate Account',
+                    _isLoading ? 'deact_processing_btn'.tr : 'deact_submit_btn'.tr,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   onPressed: (_agreed && !_isLoading) ? _handleDeactivate : null,

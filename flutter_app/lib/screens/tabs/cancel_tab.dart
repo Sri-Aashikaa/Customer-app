@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api.dart';
+import '../../services/language_service.dart';
 
 const _green = Color(0xFF059669);
 
@@ -211,7 +212,7 @@ class _CancelTabState extends State<CancelTab> {
         _bulkDateRange = DateTimeRange(start: list.first, end: list.last);
       });
     } else {
-      _snack('Weekends are not included in your delivery plan ($plan)', error: true);
+      _snack(tr('can_weekends_excluded', {'plan': LanguageService.planLabel(plan)}), error: true);
     }
   }
 
@@ -258,7 +259,7 @@ class _CancelTabState extends State<CancelTab> {
       });
 
       if (list.isEmpty) {
-        _snack('No scheduled delivery days found in selected range for plan: $plan', error: true);
+        _snack(tr('can_no_days_in_range', {'plan': LanguageService.planLabel(plan)}), error: true);
       }
     }
   }
@@ -289,7 +290,7 @@ class _CancelTabState extends State<CancelTab> {
   Future<void> _submit() async {
     final reason = _reasonCtrl.text.trim();
     if (reason.isEmpty) {
-      _snack('Please enter a reason for cancellation', error: true);
+      _snack('can_enter_reason_err'.tr, error: true);
       return;
     }
 
@@ -303,7 +304,7 @@ class _CancelTabState extends State<CancelTab> {
     try {
       if (_isBulkMode) {
         if (_selectedBulkDates.isEmpty) {
-          _snack('Please select at least 1 date for bulk cancellation', error: true);
+          _snack('can_select_1_date_err'.tr, error: true);
           setState(() => _submitting = false);
           return;
         }
@@ -316,7 +317,7 @@ class _CancelTabState extends State<CancelTab> {
         final newDatesToCancel = dateStrings.where((d) => !existingDates.contains(d)).toList();
 
         if (newDatesToCancel.isEmpty) {
-          _snack('All selected dates have already been requested or approved.', error: true);
+          _snack('can_all_already_req'.tr, error: true);
           setState(() => _submitting = false);
           return;
         }
@@ -337,14 +338,20 @@ class _CancelTabState extends State<CancelTab> {
         if (!mounted) return;
 
         if (alreadyRequested.isNotEmpty) {
-          _snack('✅ $count cancellation(s) submitted! (${alreadyRequested.length} date(s) were already requested)', error: false);
+          _snack(
+            tr('can_bulk_submitted_partial', {
+              'count': '$count',
+              'skipped': '${alreadyRequested.length}',
+            }),
+            error: false,
+          );
         } else {
-          _snack('✅ $count delivery cancellation request(s) submitted!', error: false);
+          _snack(tr('can_bulk_submitted', {'count': '$count'}), error: false);
         }
       } else {
         final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
         if (existingDates.contains(dateStr)) {
-          _snack('A cancellation request for $dateStr has already been submitted.', error: true);
+          _snack(tr('can_single_already_req', {'date': dateStr}), error: true);
           setState(() => _submitting = false);
           return;
         }
@@ -358,11 +365,11 @@ class _CancelTabState extends State<CancelTab> {
         _reasonCtrl.clear();
         await _load();
         if (!mounted) return;
-        _snack('✅ Cancellation request submitted!', error: false);
+        _snack('can_single_submitted'.tr, error: false);
       }
     } catch (e) {
       if (mounted) {
-        _snack('Error: $e', error: true);
+        _snack(tr('can_err_msg', {'err': '$e'}), error: true);
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -396,8 +403,8 @@ class _CancelTabState extends State<CancelTab> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Request Delivery Cancellation',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('can_request_title'.tr,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -406,7 +413,7 @@ class _CancelTabState extends State<CancelTab> {
                     border: Border.all(color: _green.withValues(alpha: 0.3)),
                   ),
                   child: Text(
-                    currentPlan,
+                    LanguageService.planLabel(currentPlan),
                     style: const TextStyle(
                         fontSize: 11, fontWeight: FontWeight.bold, color: _green),
                   ),
@@ -415,7 +422,10 @@ class _CancelTabState extends State<CancelTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Morning delivery cutoff: Before $_morningPauseCutoff (prev night) • Evening cutoff: Before $_eveningPauseCutoff',
+              tr('can_cutoff_notice', {
+                'morning': _morningPauseCutoff,
+                'evening': _eveningPauseCutoff,
+              }),
               style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 16),
@@ -447,7 +457,7 @@ class _CancelTabState extends State<CancelTab> {
                           children: [
                             Icon(Icons.event_outlined, size: 16, color: !_isBulkMode ? _green : Colors.grey.shade600),
                             const SizedBox(width: 6),
-                            Text('Single Day',
+                            Text('can_single_day'.tr,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
@@ -483,7 +493,7 @@ class _CancelTabState extends State<CancelTab> {
                           children: [
                             Icon(Icons.date_range_outlined, size: 16, color: _isBulkMode ? _green : Colors.grey.shade600),
                             const SizedBox(width: 6),
-                            Text('Bulk Date Selection',
+                            Text('can_bulk_selection'.tr,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
@@ -504,8 +514,8 @@ class _CancelTabState extends State<CancelTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Select Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
-                  Text('Only showing scheduled delivery days',
+                  Text('select_date'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+                  Text('can_only_scheduled_days'.tr,
                       style: TextStyle(fontSize: 10, fontStyle: FontStyle.italic, color: Colors.grey.shade600)),
                 ],
               ),
@@ -522,7 +532,7 @@ class _CancelTabState extends State<CancelTab> {
                   child: Row(children: [
                     const Icon(Icons.calendar_today, color: _green, size: 20),
                     const SizedBox(width: 10),
-                    Text(DateFormat('EEEE, dd MMM yyyy').format(_selectedDate),
+                    Text(LanguageService.formatFullDayDate(_selectedDate),
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                     const Spacer(),
                     const Icon(Icons.chevron_right, color: Colors.grey),
@@ -537,9 +547,9 @@ class _CancelTabState extends State<CancelTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Quick Range Presets',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
-                      Text('Auto-filters to your plan days',
+                      Text('can_quick_presets'.tr,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+                      Text('can_auto_filters_plan'.tr,
                           style: TextStyle(fontSize: 10, fontStyle: FontStyle.italic, color: Colors.grey.shade600)),
                     ],
                   ),
@@ -549,10 +559,10 @@ class _CancelTabState extends State<CancelTab> {
                     spacing: 8,
                     runSpacing: 6,
                     children: [
-                      _bulkPresetChip('Next 3 Days', () => _applyPresetDays(3)),
-                      _bulkPresetChip('Next 7 Days', () => _applyPresetDays(7)),
-                      _bulkPresetChip('Next 14 Days', () => _applyPresetDays(14)),
-                      _bulkPresetChip('Upcoming Weekend', () => _applyWeekendPreset()),
+                      _bulkPresetChip('can_next_3_days'.tr, () => _applyPresetDays(3)),
+                      _bulkPresetChip('can_next_7_days'.tr, () => _applyPresetDays(7)),
+                      _bulkPresetChip('can_next_14_days'.tr, () => _applyPresetDays(14)),
+                      _bulkPresetChip('can_upcoming_weekend'.tr, () => _applyWeekendPreset()),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -563,8 +573,8 @@ class _CancelTabState extends State<CancelTab> {
                       icon: const Icon(Icons.date_range, size: 18, color: _green),
                       label: Text(
                         _bulkDateRange != null
-                            ? '${DateFormat('dd MMM').format(_bulkDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(_bulkDateRange!.end)}'
-                            : 'Select Date Range 📅',
+                            ? '${LanguageService.formatShortDate(_bulkDateRange!.start)} - ${LanguageService.formatShortDate(_bulkDateRange!.end, includeYear: true)}'
+                            : 'can_select_date_range'.tr,
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _green),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -602,7 +612,7 @@ class _CancelTabState extends State<CancelTab> {
                                     color: _selectedBulkDates.isNotEmpty ? _green : Colors.grey),
                                 const SizedBox(width: 6),
                                 Text(
-                                  'Selected Dates (${_selectedBulkDates.length} days)',
+                                  tr('can_selected_dates_count', {'count': '${_selectedBulkDates.length}'}),
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
@@ -616,10 +626,10 @@ class _CancelTabState extends State<CancelTab> {
                             if (_selectedBulkDates.isNotEmpty)
                               InkWell(
                                 onTap: _clearBulkDates,
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  child: Text('Clear All',
-                                      style: TextStyle(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                  child: Text('can_clear_all'.tr,
+                                      style: const TextStyle(
                                           color: Colors.red,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold)),
@@ -629,11 +639,11 @@ class _CancelTabState extends State<CancelTab> {
                         ),
                         const SizedBox(height: 8),
                         if (_selectedBulkDates.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
                             child: Text(
-                              'No dates selected. Pick a date range or choose a preset above.',
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                              'can_no_dates_picked'.tr,
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           )
                         else
@@ -641,7 +651,7 @@ class _CancelTabState extends State<CancelTab> {
                             spacing: 6,
                             runSpacing: 6,
                             children: _selectedBulkDates.map((d) {
-                              final dateFormatted = DateFormat('E, dd MMM').format(d);
+                              final dateFormatted = LanguageService.formatShortDayDate(d);
                               return Chip(
                                 label: Text(dateFormatted,
                                     style: const TextStyle(
@@ -666,10 +676,10 @@ class _CancelTabState extends State<CancelTab> {
             const SizedBox(height: 12),
 
             // Time selector
-            const Text('Select Time Slot', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+            Text('select_cancel_shift'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
             const SizedBox(height: 6),
             Wrap(spacing: 8, children: _times.map((t) => ChoiceChip(
-              label: Text(t),
+              label: Text(LanguageService.slotLabel(t)),
               selected: _selectedTime == t,
               onSelected: (_) => setState(() => _selectedTime = t),
               selectedColor: _green,
@@ -681,14 +691,14 @@ class _CancelTabState extends State<CancelTab> {
             const SizedBox(height: 12),
 
             // Reason
-            const Text('Reason *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+            Text('can_reason_req'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
             const SizedBox(height: 6),
             TextField(
               controller: _reasonCtrl,
               maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'e.g. Out of station, Guest visiting, Excess milk...',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: 'can_reason_hint'.tr,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -697,8 +707,8 @@ class _CancelTabState extends State<CancelTab> {
               label: _submitting
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : Text(_isBulkMode
-                      ? 'Submit Bulk Cancellation (${_selectedBulkDates.length} days)'
-                      : 'Submit Cancellation Request (1 day)'),
+                      ? tr('can_submit_bulk_btn', {'count': '${_selectedBulkDates.length}'})
+                      : 'can_submit_single_btn'.tr),
               onPressed: _submitting ? null : _submit,
             ),
           ]),
@@ -709,14 +719,14 @@ class _CancelTabState extends State<CancelTab> {
         Card(child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Cancellation History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('can_history_title'.tr, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             if (_loading)
               const Center(child: CircularProgressIndicator(color: _green))
             else if (_cancellations.isEmpty)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('No cancellations yet', style: TextStyle(color: Colors.grey)),
+              Center(child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text('no_cancelled_dates'.tr, style: const TextStyle(color: Colors.grey)),
               ))
             else
               ..._cancellations.map((c) => _cancelCard(c)),
@@ -765,7 +775,7 @@ class _CancelTabState extends State<CancelTab> {
             color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Text(status,
+          child: Text(LanguageService.statusLabel(status),
               style: TextStyle(
                   color: color, fontSize: 11, fontWeight: FontWeight.bold)),
         ),
