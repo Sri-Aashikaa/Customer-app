@@ -1,30 +1,43 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:flutter_app/main.dart';
+import 'package:flutter_app/services/api.dart';
+import 'package:flutter_app/widgets/app_logo.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const AmuthamApp());
+  test('App version and Play Store parsers work properly', () {
+    // Verify pubspec version parser strips +build number
+    expect(
+      SupabaseAPI.parsePubspecVersion('name: flutter_app\nversion: 2.4.5+19\n'),
+      '2.4.5',
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify Google Play Store version HTML parser extracts app version and ignores reviews
+    const samplePlayHtml =
+        'data collection"]]],1],null,null,null,[[["1.18.2"]],[[[37]],[[[24,"7.0"]]]]],'
+        '["11.5.5",null,[[["vaf_phase1"]]]]';
+    expect(SupabaseAPI.parsePlayStoreVersion(samplePlayHtml), '1.18.2');
+    expect(
+      SupabaseAPI.parsePlayStoreVersion('[[["Varies with device"]],[[[37]]]]'),
+      isNull,
+    );
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('App smoke test and AppLogo asset verification', (WidgetTester tester) async {
+    // Verify logo assets paths for languages
+    expect(AppLogo.assetForLanguage('en'), 'assets/images/logo_en.png');
+    expect(AppLogo.assetForLanguage('ta'), 'assets/images/logo_ta.png');
+
+    final loadedVersion = await tester.runAsync(() => SupabaseAPI.loadAppVersion());
+    expect(loadedVersion, isNotNull);
+    expect(loadedVersion!.contains('+'), isFalse);
+    expect(SupabaseAPI.currentAppVersion, loadedVersion);
+
+    // Build the app
+    await tester.pumpWidget(const SriAashikaaApp());
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify MaterialApp mounts properly
+    expect(find.byType(MaterialApp), findsOneWidget);
   });
 }
